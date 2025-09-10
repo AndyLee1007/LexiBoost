@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LexiBoost - English Vocabulary Learning</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Login/User Selection -->
+        <div id="login-screen" class="screen">
+            <h1>🚀 LexiBoost</h1>
+            <p>Learn English vocabulary with fun quizzes!</p>
+            
+            <div class="login-form">
+                <input type="text" id="username" placeholder="Enter your name" maxlength="20">
+                <button onclick="loginUser()">Start Learning</button>
+            </div>
+            
+            <div class="features">
+                <div class="feature">📚 50 questions per session</div>
+                <div class="feature">🧠 Smart repetition system</div>
+                <div class="feature">📊 Track your progress</div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard -->
+        <div id="dashboard-screen" class="screen hidden">
+            <div class="header">
+                <h2>Welcome, <span id="user-name"></span>!</h2>
+                <div class="stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Today's Score:</span>
+                        <span id="daily-score" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Score:</span>
+                        <span id="total-score" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Words to Review:</span>
+                        <span id="wrongbook-count" class="stat-value">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button onclick="startQuizSession()" class="primary-btn">Start Quiz Session</button>
+                <button onclick="showImportScreen()" class="secondary-btn">Import Wrongbook</button>
+                <button onclick="runSelfTest()" class="secondary-btn">Run Self-Test</button>
+            </div>
+        </div>
+
+        <!-- Quiz Screen -->
+        <div id="quiz-screen" class="screen hidden">
+            <div class="quiz-header">
+                <div class="progress-info">
+                    <span>Question <span id="question-number">1</span> of 50</span>
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                </div>
+                <div class="score-display">
+                    Score: <span id="current-score">0</span>
+                </div>
+            </div>
+
+            <div class="question-content">
+                <div class="sentence-display">
+                    <p id="sentence-text"></p>
+                </div>
+                
+                <div class="question-prompt">
+                    What does "<span id="target-word"></span>" mean?
+                </div>
+
+                <div class="choices" id="answer-choices">
+                    <!-- Choices will be populated dynamically -->
+                </div>
+
+                <button id="submit-answer" onclick="submitAnswer()" disabled>Submit Answer</button>
+            </div>
+        </div>
+
+        <!-- Result Screen -->
+        <div id="result-screen" class="screen hidden">
+            <div class="result-content">
+                <h2 id="result-title"></h2>
+                <div id="result-message" class="result-message"></div>
+                <div id="explanation" class="explanation"></div>
+                <button onclick="nextQuestion()" class="primary-btn">Next Question</button>
+            </div>
+        </div>
+
+        <!-- Session Complete Screen -->
+        <div id="complete-screen" class="screen hidden">
+            <div class="complete-content">
+                <h2>🎉 Session Complete!</h2>
+                <div class="final-stats">
+                    <div class="stat">Questions: <span id="final-questions">50</span></div>
+                    <div class="stat">Correct: <span id="final-correct">0</span></div>
+                    <div class="stat">Score: <span id="final-score">0</span></div>
+                    <div class="stat">Accuracy: <span id="final-accuracy">0%</span></div>
+                </div>
+                <button onclick="returnToDashboard()" class="primary-btn">Return to Dashboard</button>
+            </div>
+        </div>
+
+        <!-- Import Screen -->
+        <div id="import-screen" class="screen hidden">
+            <div class="import-content">
+                <h2>Import Wrongbook Words</h2>
+                <p>Upload a CSV file with words and definitions:</p>
+                <div class="file-upload">
+                    <input type="file" id="csv-file" accept=".csv">
+                    <button onclick="uploadCSV()">Upload CSV</button>
+                </div>
+                <div class="csv-format">
+                    <h4>CSV Format:</h4>
+                    <pre>word,definition
+happy,feeling or showing pleasure
+sad,feeling or showing sorrow</pre>
+                </div>
+                <button onclick="returnToDashboard()" class="secondary-btn">Back to Dashboard</button>
+            </div>
+        </div>
+
+        <!-- Self-Test Screen -->
+        <div id="selftest-screen" class="screen hidden">
+            <div class="selftest-content">
+                <h2>System Self-Test</h2>
+                <div id="test-results"></div>
+                <button onclick="returnToDashboard()" class="secondary-btn">Back to Dashboard</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
