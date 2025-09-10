@@ -1,0 +1,444 @@
+/* LexiBoost CSS Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.container {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.screen {
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    animation: fadeIn 0.5s ease-in;
+}
+
+.hidden {
+    display: none !important;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Login Screen */
+#login-screen h1 {
+    text-align: center;
+    color: #333;
+    font-size: 2.5em;
+    margin-bottom: 10px;
+}
+
+#login-screen p {
+    text-align: center;
+    color: #666;
+    margin-bottom: 30px;
+}
+
+.login-form {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.login-form input {
+    padding: 12px 20px;
+    font-size: 16px;
+    border: 2px solid #ddd;
+    border-radius: 25px;
+    width: 300px;
+    max-width: 100%;
+    margin-bottom: 15px;
+    outline: none;
+    transition: border-color 0.3s;
+}
+
+.login-form input:focus {
+    border-color: #667eea;
+}
+
+.features {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.feature {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 5px;
+    text-align: center;
+    flex: 1;
+    min-width: 150px;
+}
+
+/* Dashboard Screen */
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.header h2 {
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.stats {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.stat-item {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+    flex: 1;
+    min-width: 120px;
+}
+
+.stat-label {
+    display: block;
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.actions {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+/* Buttons */
+button {
+    padding: 12px 25px;
+    border: none;
+    border-radius: 25px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s;
+    outline: none;
+}
+
+.primary-btn {
+    background: #667eea;
+    color: white;
+}
+
+.primary-btn:hover {
+    background: #5a6fd8;
+    transform: translateY(-2px);
+}
+
+.secondary-btn {
+    background: #f8f9fa;
+    color: #333;
+    border: 2px solid #ddd;
+}
+
+.secondary-btn:hover {
+    background: #e9ecef;
+    transform: translateY(-2px);
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Quiz Screen */
+.quiz-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.progress-info {
+    flex: 1;
+    min-width: 200px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    margin-top: 10px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #667eea;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.score-display {
+    font-size: 18px;
+    font-weight: bold;
+    color: #667eea;
+}
+
+.question-content {
+    text-align: center;
+}
+
+.sentence-display {
+    background: #f8f9fa;
+    padding: 25px;
+    border-radius: 10px;
+    margin-bottom: 25px;
+    border-left: 4px solid #667eea;
+}
+
+.sentence-display p {
+    font-size: 18px;
+    line-height: 1.6;
+}
+
+.sentence-display mark {
+    background: #667eea;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.question-prompt {
+    font-size: 20px;
+    margin-bottom: 25px;
+    color: #333;
+}
+
+.question-prompt span {
+    color: #667eea;
+    font-weight: bold;
+}
+
+.choices {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 25px;
+}
+
+.choice {
+    padding: 15px 20px;
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: white;
+}
+
+.choice:hover {
+    border-color: #667eea;
+    background: #f8f9fa;
+}
+
+.choice.selected {
+    border-color: #667eea;
+    background: #667eea;
+    color: white;
+}
+
+.choice.correct {
+    border-color: #28a745;
+    background: #28a745;
+    color: white;
+}
+
+.choice.incorrect {
+    border-color: #dc3545;
+    background: #dc3545;
+    color: white;
+}
+
+/* Result Screen */
+.result-content {
+    text-align: center;
+}
+
+.result-message {
+    font-size: 18px;
+    margin: 20px 0;
+    padding: 20px;
+    border-radius: 10px;
+}
+
+.result-message.correct {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.result-message.incorrect {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.explanation {
+    background: #e2e3e5;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 20px 0;
+    font-style: italic;
+}
+
+/* Complete Screen */
+.complete-content {
+    text-align: center;
+}
+
+.final-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 15px;
+    margin: 30px 0;
+}
+
+.stat {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    font-size: 16px;
+}
+
+.stat span {
+    display: block;
+    font-size: 24px;
+    font-weight: bold;
+    color: #667eea;
+    margin-top: 5px;
+}
+
+/* Import Screen */
+.import-content {
+    text-align: center;
+}
+
+.file-upload {
+    margin: 20px 0;
+}
+
+.file-upload input {
+    margin-bottom: 15px;
+}
+
+.csv-format {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+    text-align: left;
+}
+
+.csv-format h4 {
+    margin-bottom: 10px;
+}
+
+.csv-format pre {
+    background: #e9ecef;
+    padding: 10px;
+    border-radius: 5px;
+    font-family: monospace;
+    margin-top: 10px;
+}
+
+/* Self-Test Screen */
+.selftest-content {
+    text-align: center;
+}
+
+#test-results {
+    margin: 20px 0;
+}
+
+.test-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    margin: 8px 0;
+    border-radius: 8px;
+    background: #f8f9fa;
+}
+
+.test-status {
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.test-status.pass {
+    background: #d4edda;
+    color: #155724;
+}
+
+.test-status.fail {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .screen {
+        padding: 20px;
+    }
+    
+    .quiz-header {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .stats {
+        flex-direction: column;
+    }
+    
+    .actions {
+        flex-direction: column;
+    }
+    
+    .login-form input {
+        width: 100%;
+    }
+}
