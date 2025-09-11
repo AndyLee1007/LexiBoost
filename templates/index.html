@@ -111,6 +111,9 @@
         <div id="import-screen" class="screen hidden">
             <div class="import-content">
                 <h2>Import Wrongbook Words</h2>
+                
+                <!-- CSV Import Section -->
+                <h3>Upload CSV File</h3>
                 <p>Upload a CSV file with words and definitions:</p>
                 <div class="file-upload">
                     <input type="file" id="csv-file" accept=".csv">
@@ -122,6 +125,27 @@
 happy,feeling or showing pleasure
 sad,feeling or showing sorrow</pre>
                 </div>
+                
+                <!-- PDF Preprocessing Section -->
+                <hr style="margin: 30px 0;">
+                <h3>PDF Preprocessing</h3>
+                <p>Upload a PDF file to extract vocabulary words and generate TSV format:</p>
+                <div class="file-upload">
+                    <input type="file" id="pdf-file" accept=".pdf">
+                    <button onclick="preprocessPDF()">Process PDF</button>
+                </div>
+                <div class="pdf-format">
+                    <h4>Output Format (TSV):</h4>
+                    <pre>word	category	meaning	meaning1	sentence
+elephant		definition	alternate definition	sample sentence</pre>
+                    <p><small>The PDF will be processed to extract vocabulary words and generate sentences automatically.</small></p>
+                </div>
+                <div id="pdf-results" class="pdf-results hidden">
+                    <h4>Processing Results:</h4>
+                    <div id="pdf-output"></div>
+                    <button id="download-tsv" onclick="downloadTSV()" class="secondary-btn hidden">Download TSV</button>
+                </div>
+                
                 <button onclick="returnToDashboard()" class="secondary-btn">Back to Dashboard</button>
             </div>
         </div>

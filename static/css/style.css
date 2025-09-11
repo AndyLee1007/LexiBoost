@@ -379,6 +379,77 @@ button:disabled {
     margin-top: 10px;
 }
 
+/* PDF Preprocessing Styles */
+.pdf-format {
+    background: #f0f8ff;
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+    text-align: left;
+    border: 1px solid #d1ecf1;
+}
+
+.pdf-format h4 {
+    margin-bottom: 10px;
+    color: #0c5460;
+}
+
+.pdf-format pre {
+    background: #e1f5fe;
+    padding: 10px;
+    border-radius: 5px;
+    font-family: monospace;
+    margin-top: 10px;
+    color: #01579b;
+}
+
+.pdf-results {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+    text-align: left;
+    border: 1px solid #dee2e6;
+}
+
+.pdf-success {
+    color: #155724;
+}
+
+.pdf-success p {
+    margin: 8px 0;
+}
+
+.tsv-preview {
+    margin-top: 15px;
+}
+
+.tsv-preview h5 {
+    margin-bottom: 8px;
+    color: #495057;
+}
+
+.tsv-preview pre {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 5px;
+    font-family: monospace;
+    font-size: 12px;
+    border: 1px solid #dee2e6;
+    overflow-x: auto;
+    color: #495057;
+}
+
+hr {
+    border: none;
+    border-top: 2px solid #dee2e6;
+    margin: 30px 0;
+}
+
+.hidden {
+    display: none;
+}
+
 /* Self-Test Screen */
 .selftest-content {
     text-align: center;

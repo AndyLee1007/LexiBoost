@@ -276,6 +276,95 @@ async function uploadCSV() {
     }
 }
 
+// PDF preprocessing functionality
+let currentTSVContent = '';
+
+async function preprocessPDF() {
+    const fileInput = document.getElementById('pdf-file');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        showError('Please select a PDF file');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        showPDFProcessing(true);
+        
+        const response = await fetch('/api/preprocess-pdf', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+            showPDFResults(result);
+            currentTSVContent = result.tsv_content;
+            fileInput.value = ''; // Clear file input
+        } else {
+            showError(result.error);
+            showPDFProcessing(false);
+        }
+    } catch (error) {
+        showError('Failed to process PDF file');
+        showPDFProcessing(false);
+    }
+}
+
+function showPDFProcessing(isProcessing) {
+    const resultsDiv = document.getElementById('pdf-results');
+    const outputDiv = document.getElementById('pdf-output');
+    
+    if (isProcessing) {
+        resultsDiv.classList.remove('hidden');
+        outputDiv.innerHTML = '<p>Processing PDF... Please wait.</p>';
+    } else {
+        resultsDiv.classList.add('hidden');
+    }
+}
+
+function showPDFResults(result) {
+    const resultsDiv = document.getElementById('pdf-results');
+    const outputDiv = document.getElementById('pdf-output');
+    const downloadBtn = document.getElementById('download-tsv');
+    
+    resultsDiv.classList.remove('hidden');
+    downloadBtn.classList.remove('hidden');
+    
+    outputDiv.innerHTML = `
+        <div class="pdf-success">
+            <p><strong>✅ ${result.message}</strong></p>
+            <p>Extracted ${result.word_count} unique words</p>
+            <p><strong>Sample words:</strong> ${result.words_processed.join(', ')}</p>
+            <div class="tsv-preview">
+                <h5>TSV Preview (first 5 lines):</h5>
+                <pre>${result.tsv_content.split('\n').slice(0, 5).join('\n')}</pre>
+            </div>
+        </div>
+    `;
+}
+
+function downloadTSV() {
+    if (!currentTSVContent) {
+        showError('No TSV content to download');
+        return;
+    }
+    
+    const blob = new Blob([currentTSVContent], { type: 'text/tab-separated-values' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'vocabulary_words.tsv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+
 // Self-test functionality
 async function runSelfTest() {
     showScreen('selftest-screen');
