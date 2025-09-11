@@ -13,6 +13,11 @@ import io
 from datetime import datetime, timedelta
 import random
 import os
+import re
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
 
 app = Flask(__name__)
 CORS(app)
@@ -511,6 +516,114 @@ def import_wrongbook(user_id):
     
     except Exception as e:
         return jsonify({'error': f'Error processing CSV: {str(e)}'}), 400
+
+def extract_text_from_pdf(pdf_file):
+    """Extract text from PDF file"""
+    if not PyPDF2:
+        raise ImportError("PyPDF2 is required for PDF processing")
+    
+    try:
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        raise Exception(f"Error extracting text from PDF: {str(e)}")
+
+def extract_words_from_text(text):
+    """Extract unique words from text, filtering out common words and noise"""
+    # Convert to lowercase and extract words (letters only)
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+    
+    # Common words to filter out (basic stop words)
+    stop_words = {
+        'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did', 'she', 'use', 'way', 'what', 'when', 'will', 'with', 'have', 'this', 'that', 'they', 'from', 'been', 'each', 'like', 'more', 'said', 'some', 'time', 'very', 'were', 'well', 'come', 'down', 'first', 'good', 'into', 'just', 'look', 'make', 'many', 'over', 'than', 'them', 'these', 'would', 'about', 'after', 'before', 'could', 'other', 'right', 'their', 'there', 'water', 'where', 'which', 'words', 'write'
+    }
+    
+    # Filter out stop words and duplicates
+    unique_words = list(set([word for word in words if word not in stop_words and len(word) >= 3]))
+    
+    return sorted(unique_words)
+
+def extract_categories_from_pdf_metadata(pdf_file):
+    """Extract categories from PDF metadata or attachments (basic implementation)"""
+    # This is a basic implementation - in practice, you'd need more sophisticated
+    # logic to extract categories from PDF attachments or specific sections
+    categories = {}
+    
+    try:
+        if PyPDF2:
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            # Check if there are any annotations or metadata that might contain categories
+            if pdf_reader.metadata:
+                # Look for category information in metadata
+                for key, value in pdf_reader.metadata.items():
+                    if 'category' in str(key).lower() or 'subject' in str(key).lower():
+                        # Basic parsing - this would need to be customized based on actual PDF structure
+                        pass
+    except Exception:
+        pass
+    
+    return categories
+
+@app.route('/api/preprocess-pdf', methods=['POST'])
+def preprocess_pdf():
+    """Preprocess PDF file and generate TSV format"""
+    if not PyPDF2:
+        return jsonify({'error': 'PDF processing not available - PyPDF2 not installed'}), 500
+    
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'File must be PDF format'}), 400
+    
+    try:
+        # Extract text from PDF
+        pdf_text = extract_text_from_pdf(file)
+        
+        # Extract words from the text
+        words = extract_words_from_text(pdf_text)
+        
+        # Extract categories (basic implementation)
+        file.seek(0)  # Reset file pointer
+        categories = extract_categories_from_pdf_metadata(file)
+        
+        # Generate TSV content
+        tsv_lines = ['word\tcategory\tmeaning\tmeaning1\tsentence']
+        
+        for word in words:
+            # Get category for word (if available)
+            category = categories.get(word, '')
+            
+            # For this basic implementation, we'll use the word as both meaning and meaning1
+            # In a real scenario, you'd want to look up actual definitions
+            meaning = f"a word related to {word}"
+            meaning1 = f"definition of {word}"
+            
+            # Generate a sentence using the existing sentence generation logic
+            sentence = generate_sentence_with_word(word)
+            
+            # Add to TSV
+            tsv_lines.append(f"{word}\t{category}\t{meaning}\t{meaning1}\t{sentence}")
+        
+        # Create response with TSV content
+        tsv_content = '\n'.join(tsv_lines)
+        
+        return jsonify({
+            'message': f'Successfully processed PDF and extracted {len(words)} words',
+            'word_count': len(words),
+            'tsv_content': tsv_content,
+            'words_processed': words[:10]  # Show first 10 words as preview
+        })
+    
+    except Exception as e:
+        return jsonify({'error': f'Error processing PDF: {str(e)}'}), 400
 
 @app.route('/api/self-test')
 def self_test():
