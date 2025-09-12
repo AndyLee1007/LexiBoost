@@ -1,0 +1,3 @@
+﻿word,definition_en,notes,definition_zh,pos,register,examples,category
+a,an indefinite article placed before a singular countable noun to refer to one non-specific member.,,一种限定词，用在单数可数名词前，表示“某一个/一个不特定的对象”的意思，通常在以辅音音素开头的词前使用。,['det'],,"[{'en': 'I saw a cat in the garden.', 'zh': '我在花园里看到了一只猫。'}, {'en': 'She adopted a dog from the shelter.', 'zh': '她从收容所领养了一只狗。'}, {'en': 'He bought a book yesterday.', 'zh': '他昨天买了一本书。'}]",
+ability,the capacity or skill to do something.,,做某事的能力或技能。,['n'],neutral,"[{'en': 'She has the ability to speak three languages.', 'zh': '她有说三种语言的能力。'}, {'en': 'With practice, his athletic ability improved.', 'zh': '通过练习，他的运动能力提高了。'}, {'en': 'The job requires strong problem-solving ability.', 'zh': '这份工作需要很强的解决问题的能力。'}]",
