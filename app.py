@@ -13,136 +13,18 @@ import io
 from datetime import datetime, timedelta
 import random
 import os
+from db_manager import DatabaseManager
 
 app = Flask(__name__)
 CORS(app)
 
 # Database configuration
 DATABASE = 'lexiboost.db'
+db_manager = DatabaseManager(DATABASE)
 
 def get_db_connection():
     """Get database connection"""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    """Initialize database with required tables"""
-    conn = get_db_connection()
-    
-    # Users table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Words table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            word TEXT NOT NULL,
-            definition TEXT NOT NULL,
-            difficulty_level INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # User words (wrongbook) table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS user_words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            word_id INTEGER,
-            correct_count INTEGER DEFAULT 0,
-            last_reviewed TIMESTAMP,
-            next_review TIMESTAMP,
-            srs_interval INTEGER DEFAULT 0,
-            in_wrongbook BOOLEAN DEFAULT 1,
-            FOREIGN KEY (user_id) REFERENCES users (id),
-            FOREIGN KEY (word_id) REFERENCES words (id)
-        )
-    ''')
-    
-    # Sessions table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            session_date DATE,
-            total_questions INTEGER DEFAULT 0,
-            correct_answers INTEGER DEFAULT 0,
-            score INTEGER DEFAULT 0,
-            completed BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    # Question attempts table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS question_attempts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER,
-            word_id INTEGER,
-            question_text TEXT,
-            correct_answer TEXT,
-            user_answer TEXT,
-            is_correct BOOLEAN,
-            explanation TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (session_id) REFERENCES sessions (id),
-            FOREIGN KEY (word_id) REFERENCES words (id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-def seed_initial_data():
-    """Seed database with initial vocabulary words"""
-    conn = get_db_connection()
-    
-    # Check if words already exist
-    existing = conn.execute('SELECT COUNT(*) as count FROM words').fetchone()
-    if existing['count'] > 0:
-        conn.close()
-        return
-    
-    # Sample vocabulary words for kids
-    sample_words = [
-        ('happy', 'feeling or showing pleasure or contentment'),
-        ('run', 'move at a speed faster than a walk'),
-        ('book', 'a written or printed work consisting of pages'),
-        ('cat', 'a small domesticated carnivorous mammal'),
-        ('big', 'of considerable size or extent'),
-        ('red', 'of a color at the end of the spectrum'),
-        ('house', 'a building for human habitation'),
-        ('water', 'a colorless, transparent liquid'),
-        ('tree', 'a woody perennial plant'),
-        ('friend', 'a person whom one knows and likes'),
-        ('school', 'an institution for education'),
-        ('play', 'engage in activity for enjoyment'),
-        ('food', 'any nutritious substance that people eat'),
-        ('dog', 'a domesticated carnivorous mammal'),
-        ('sun', 'the star around which the earth orbits'),
-        ('moon', 'the natural satellite of the earth'),
-        ('car', 'a road vehicle powered by an engine'),
-        ('bird', 'a warm-blooded egg-laying vertebrate'),
-        ('fish', 'a limbless cold-blooded vertebrate animal'),
-        ('flower', 'the reproductive structure of a flowering plant')
-    ]
-    
-    for word, definition in sample_words:
-        conn.execute(
-            'INSERT INTO words (word, definition) VALUES (?, ?)',
-            (word, definition)
-        )
-    
-    conn.commit()
-    conn.close()
+    return db_manager.get_db_connection()
 
 # Mock LLM sentence generation
 def generate_sentence_with_word(word):
