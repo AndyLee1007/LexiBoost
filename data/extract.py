@@ -139,7 +139,7 @@ def build_word_topic_map(lines: Iterable[str]) -> Dict[str, str]:
 def assign_topics_and_save(
     df: pd.DataFrame,
     pdf_path: Path,
-    out_path: Path = Path("/mnt/data/b1_words_with_topics.xlsx"),
+    out_path: Path = Path("b1_words_with_topics.xlsx"),
 ) -> Path:
     """Extract topics from PDF, map words to topics, write DataFrame to Excel."""
     text_full = extract_text_with_fallback(pdf_path)
