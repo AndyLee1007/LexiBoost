@@ -51,7 +51,15 @@ DEFAULT_OUTPUT_PATH = os.getenv("WORD_EXPLAINER_DEFAULT_OUTPUT_PATH", "data/expl
 DEFAULT_LEVEL = os.getenv("WORD_EXPLAINER_DEFAULT_LEVEL", "general")
 DEFAULT_TEMPERATURE = float(os.getenv("WORD_EXPLAINER_TEMPERATURE", "0.2"))
 
-if not AZURE_ENDPOINT or not AZURE_API_KEY or not AZURE_API_VERSION or not AZURE_DEPLOYMENT:
+def validate_azure_config():
+    return all([
+        AZURE_ENDPOINT,
+        AZURE_API_KEY,
+        AZURE_API_VERSION,
+        AZURE_DEPLOYMENT
+    ])
+
+if not validate_azure_config():
     # Don't crash on import—only warn; CLI will raise on call for better UX.
     sys.stderr.write(
         "[WARN] Missing Azure OpenAI configuration. Set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, "
