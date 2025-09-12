@@ -245,8 +245,8 @@ def explain_many(input_path: str = DEFAULT_INPUT_PATH, output_path: str = DEFAUL
         fieldnames = list(fieldnames)
 
         if "word" in fieldnames:
-                fieldnames.remove("word")
-                fieldnames = ["word"] + fieldnames
+            fieldnames.remove("word")
+            fieldnames = ["word"] + fieldnames
 
         with open(output_path, "w", encoding="utf-8-sig", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
