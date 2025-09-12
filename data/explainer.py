@@ -137,7 +137,7 @@ def _chat_once(word: str, level: str, temperature: float = DEFAULT_TEMPERATURE, 
     Returns raw JSON string from the model (no markdown).
     """
     client = _get_client()
-    model_name = AZURE_DEPLOYMENT.lower()
+    model_name = AZURE_DEPLOYMENT
     kwargs = {
         "model": model_name,
         "response_format": {"type": "json_object"},
