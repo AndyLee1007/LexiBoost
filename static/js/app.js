@@ -138,7 +138,10 @@ async function startQuizSession() {
 async function loadNextQuestion() {
     try {
         const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
-        if (q.session_complete) { await showSessionComplete(); return; }
+        if (q.session_complete) {
+            await showSessionComplete();
+            return;
+        }
 
         currentQuestion = q;
         questionNumber = q.question_number;
