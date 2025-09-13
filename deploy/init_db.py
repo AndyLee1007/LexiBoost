@@ -212,9 +212,6 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
         print(f"[WARN] CSV not found: {csv_path}")
         return
 
-    import ast
-    import json
-
     # --- helpers ---
     def _line_iter(f):
         """Filter out comments (#...) and blank lines."""
