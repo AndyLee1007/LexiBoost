@@ -26,139 +26,6 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def init_db():
-    """Initialize database with required tables"""
-    conn = get_db_connection()
-    
-    # Users table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Words table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            word TEXT NOT NULL,
-            definition TEXT NOT NULL,
-            difficulty_level INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # User words (wrongbook) table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS user_words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            word_id INTEGER,
-            correct_count INTEGER DEFAULT 0,
-            last_reviewed TIMESTAMP,
-            next_review TIMESTAMP,
-            srs_interval INTEGER DEFAULT 0,
-            in_wrongbook BOOLEAN DEFAULT 1,
-            FOREIGN KEY (user_id) REFERENCES users (id),
-            FOREIGN KEY (word_id) REFERENCES words (id)
-        )
-    ''')
-    
-    # Sessions table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            session_date DATE,
-            total_questions INTEGER DEFAULT 0,
-            correct_answers INTEGER DEFAULT 0,
-            score INTEGER DEFAULT 0,
-            completed BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    # Question attempts table
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS question_attempts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id INTEGER,
-            word_id INTEGER,
-            question_text TEXT,
-            correct_answer TEXT,
-            user_answer TEXT,
-            is_correct BOOLEAN,
-            explanation TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (session_id) REFERENCES sessions (id),
-            FOREIGN KEY (word_id) REFERENCES words (id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-def seed_initial_data():
-    """Seed database with initial vocabulary words"""
-    conn = get_db_connection()
-    
-    # Check if words already exist
-    existing = conn.execute('SELECT COUNT(*) as count FROM words').fetchone()
-    if existing['count'] > 0:
-        conn.close()
-        return
-    
-    # Sample vocabulary words for kids
-    sample_words = [
-        ('happy', 'feeling or showing pleasure or contentment'),
-        ('run', 'move at a speed faster than a walk'),
-        ('book', 'a written or printed work consisting of pages'),
-        ('cat', 'a small domesticated carnivorous mammal'),
-        ('big', 'of considerable size or extent'),
-        ('red', 'of a color at the end of the spectrum'),
-        ('house', 'a building for human habitation'),
-        ('water', 'a colorless, transparent liquid'),
-        ('tree', 'a woody perennial plant'),
-        ('friend', 'a person whom one knows and likes'),
-        ('school', 'an institution for education'),
-        ('play', 'engage in activity for enjoyment'),
-        ('food', 'any nutritious substance that people eat'),
-        ('dog', 'a domesticated carnivorous mammal'),
-        ('sun', 'the star around which the earth orbits'),
-        ('moon', 'the natural satellite of the earth'),
-        ('car', 'a road vehicle powered by an engine'),
-        ('bird', 'a warm-blooded egg-laying vertebrate'),
-        ('fish', 'a limbless cold-blooded vertebrate animal'),
-        ('flower', 'the reproductive structure of a flowering plant')
-    ]
-    
-    for word, definition in sample_words:
-        conn.execute(
-            'INSERT INTO words (word, definition) VALUES (?, ?)',
-            (word, definition)
-        )
-    
-    conn.commit()
-    conn.close()
-
-# Mock LLM sentence generation
-def generate_sentence_with_word(word):
-    """Generate a simple sentence containing the target word"""
-    templates = [
-        f"The {word} is very important in our daily life.",
-        f"I saw a beautiful {word} in the garden today.",
-        f"My teacher told us about the {word} in class.",
-        f"The children were excited to see the {word}.",
-        f"We learned about {word} in our science lesson.",
-        f"The {word} made everyone smile and laugh happily.",
-        f"During summer vacation, we often see this {word}.",
-        f"My family likes to talk about the {word}."
-    ]
-    return random.choice(templates)
-
 def get_srs_intervals():
     """Return SRS intervals in days"""
     return [0, 1, 3, 7, 14]
@@ -176,6 +43,63 @@ def calculate_next_review(current_interval_index, is_correct):
     next_review = datetime.now() + timedelta(days=next_interval)
     
     return next_review, next_index
+
+def generate_sentence_with_word(word: str, pos_tags=None) -> str:
+    """
+    Lightweight fallback sentence generator when no DB example exists.
+    - Deterministic per word (seeded) to keep UX stable across sessions.
+    - Puts the word in quotes to avoid article/inflection issues (e.g., 'a').
+    """
+    templates_common = [
+        "My family likes to talk about '{w}'.",
+        "We learned about '{w}' in class today.",
+        "The teacher gave an example with '{w}'.",
+        "Many people use '{w}' every day.",
+        "I saw the word '{w}' in a book.",
+        "This question is about '{w}'.",
+        "Can you explain what '{w}' means?",
+        "People often discuss '{w}' in daily life.",
+    ]
+
+    noun_like = {"n", "noun"}
+    verb_like = {"v", "verb"}
+    adj_like  = {"adj", "adjective"}
+    adv_like  = {"adv", "adverb"}
+
+    pos_tags = set((pos_tags or []))
+    if pos_tags & verb_like:
+        templates = [
+            "People often '{w}' after school.",
+            "They decided to '{w}' together.",
+            "Try to '{w}' carefully in this task.",
+            "Sometimes we need to '{w}' to solve problems.",
+        ]
+    elif pos_tags & adj_like:
+        templates = [
+            "It was a very '{w}' idea.",
+            "The story sounds quite '{w}'.",
+            "Her answer seems '{w}' to me.",
+            "That looks rather '{w}'.",
+        ]
+    elif pos_tags & adv_like:
+        templates = [
+            "She spoke '{w}' to make everything clear.",
+            "Please work '{w}' to avoid mistakes.",
+            "They moved '{w}' through the hallway.",
+            "He answered '{w}' during the test.",
+        ]
+    elif pos_tags & noun_like:
+        templates = [
+            "Everyone was talking about '{w}'.",
+            "The museum had an exhibit about '{w}'.",
+            "I read an article on '{w}' yesterday.",
+            "We found more information about '{w}'.",
+        ]
+    else:
+        templates = templates_common
+
+    rng = random.Random(hash(word) & 0xFFFFFFFF)
+    return rng.choice(templates).format(w=word)
 
 @app.route('/')
 def index():
@@ -237,87 +161,103 @@ def start_session(user_id):
 
 @app.route('/api/sessions/<int:session_id>/question')
 def get_question(session_id):
-    """Get next question for the session"""
+    """Get next question for the session (reads from new schema)."""
     conn = get_db_connection()
-    
-    # Get session info
+
+    # 1) validate session
     session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
     if not session:
         conn.close()
         return jsonify({'error': 'Session not found'}), 404
-    
     user_id = session['user_id']
-    
-    # Check if session is complete (50 questions)
+
+    # 2) stop at 50 questions
     question_count = conn.execute(
         'SELECT COUNT(*) as count FROM question_attempts WHERE session_id = ?',
         (session_id,)
     ).fetchone()['count']
-    
     if question_count >= 50:
         conn.close()
         return jsonify({'session_complete': True})
-    
-    # Get words due for review (wrongbook) or random unseen words
+
+    # 3) candidate words: due wrongbook first, then unseen
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
         JOIN user_words uw ON w.id = uw.word_id 
         WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
-        AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
+          AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
         ORDER BY uw.next_review ASC
         LIMIT 10
     ''', (user_id,)).fetchall()
-    
-    # Get unseen words
+
     unseen_words = conn.execute('''
-        SELECT w.* FROM words w 
+        SELECT w.* FROM words w
         WHERE w.id NOT IN (
             SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?
         )
         ORDER BY RANDOM()
         LIMIT 10
     ''', (user_id,)).fetchall()
-    
-    # Combine and select a word
+
     available_words = list(wrongbook_words) + list(unseen_words)
     if not available_words:
         conn.close()
         return jsonify({'error': 'No words available'}), 400
-    
-    target_word = random.choice(available_words)
-    
-    # Generate sentence
-    sentence = generate_sentence_with_word(target_word['word'])
-    
-    # Generate distractors (wrong answers)
-    distractors = conn.execute('''
-        SELECT definition FROM words 
-        WHERE id != ? AND definition != ?
-        ORDER BY RANDOM()
-        LIMIT 2
-    ''', (target_word['id'], target_word['definition'])).fetchall()
-    
-    if len(distractors) < 2:
-        # Fallback distractors
-        distractors = [
-            {'definition': 'a type of musical instrument'},
-            {'definition': 'a kind of weather pattern'}
-        ]
-    
-    # Create answer choices
-    choices = [target_word['definition']] + [d['definition'] for d in distractors]
+
+    target = random.choice(available_words)
+    word_id = target['id']
+    word_txt = target['word']
+    correct_definition = target['definition_en']
+
+    # 4) sentence: prefer DB example
+    ex = conn.execute(
+        'SELECT en, zh FROM word_examples WHERE word_id = ? ORDER BY RANDOM() LIMIT 1',
+        (word_id,)
+    ).fetchone()
+    if ex and (ex['en'] or ex['zh']):
+        sentence = ex['en'] or ex['zh']
+    else:
+        sentence = generate_sentence_with_word(word_txt)
+
+    # 5) distractors: prefer word_distractors; top-up from other words if needed
+    rows = conn.execute(
+        'SELECT text FROM word_distractors WHERE word_id = ? ORDER BY id',
+        (word_id,)
+    ).fetchall()
+    distractors = [r['text'] for r in rows if (r['text'] or '').strip()]
+
+    need = max(0, 2 - len(distractors))  # 至少要 2 个
+    if need > 0:
+        filler = conn.execute(
+            '''SELECT definition_en FROM words WHERE id != ? 
+               ORDER BY RANDOM() LIMIT ?''',
+            (word_id, need)
+        ).fetchall()
+        distractors += [r['definition_en'] for r in filler if (r['definition_en'] or '').strip()]
+
+    # 截断到最多 3 个（前端通常 3 选/4 选）
+    distractors = distractors[:3]
+    # 兜底：仍不足 2 个时，用固定占位
+    while len(distractors) < 2:
+        distractors.append('a kind of weather pattern')
+
+    # 6) build choices
+    choices = [correct_definition] + distractors
     random.shuffle(choices)
-    
+
+    # 可读的问题文案（前端也可自行渲染）
+    question_text = f"What does \"{word_txt}\" mean?"
+
     conn.close()
-    
     return jsonify({
-        'question_id': f"{session_id}_{target_word['id']}",
-        'word_id': target_word['id'],
+        'question_id': f"{session_id}_{word_id}",
+        'word_id': word_id,
+        'target_word': word_txt,
         'sentence': sentence,
-        'target_word': target_word['word'],
+        'question_text': question_text,
         'choices': choices,
-        'correct_answer': target_word['definition'],
+        'correct_answer': correct_definition,
         'question_number': question_count + 1
     })
 
@@ -449,66 +389,65 @@ def get_user_stats(user_id):
 
 @app.route('/api/users/<int:user_id>/wrongbook/import', methods=['POST'])
 def import_wrongbook(user_id):
-    """Import wrongbook words from CSV"""
+    """Import wrongbook words from CSV (columns: word, definition)."""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
-    
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
-    
     if not file.filename.endswith('.csv'):
         return jsonify({'error': 'File must be CSV format'}), 400
-    
+
     try:
-        # Read CSV file
         stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
         csv_reader = csv.reader(stream)
-        
+
         conn = get_db_connection()
         imported_count = 0
-        
+
         for row in csv_reader:
             if len(row) >= 2:
-                word, definition = row[0].strip(), row[1].strip()
-                if word and definition:
-                    # Insert word if it doesn't exist
-                    existing_word = conn.execute(
-                        'SELECT id FROM words WHERE word = ?', (word,)
-                    ).fetchone()
-                    
-                    if existing_word:
-                        word_id = existing_word['id']
-                    else:
-                        cursor = conn.execute(
-                            'INSERT INTO words (word, definition) VALUES (?, ?)',
-                            (word, definition)
-                        )
-                        word_id = cursor.lastrowid
-                    
-                    # Add to user's wrongbook
-                    existing_user_word = conn.execute(
-                        'SELECT id FROM user_words WHERE user_id = ? AND word_id = ?',
-                        (user_id, word_id)
-                    ).fetchone()
-                    
-                    if not existing_user_word:
-                        next_review = datetime.now()
-                        conn.execute('''
-                            INSERT INTO user_words 
-                            (user_id, word_id, correct_count, next_review, srs_interval, in_wrongbook)
-                            VALUES (?, ?, 0, ?, 0, 1)
-                        ''', (user_id, word_id, next_review))
-                        imported_count += 1
-        
+                word = (row[0] or '').strip()
+                definition = (row[1] or '').strip()
+                if not word or not definition:
+                    continue
+
+                # find or create word (definition_en)
+                existing = conn.execute(
+                    'SELECT id FROM words WHERE word = ?',
+                    (word,)
+                ).fetchone()
+                if existing:
+                    word_id = existing['id']
+                else:
+                    cursor = conn.execute(
+                        'INSERT INTO words (word, definition_en) VALUES (?, ?)',
+                        (word, definition)
+                    )
+                    word_id = cursor.lastrowid
+
+                # add to user's wrongbook if not exists
+                uw = conn.execute(
+                    'SELECT id FROM user_words WHERE user_id = ? AND word_id = ?',
+                    (user_id, word_id)
+                ).fetchone()
+                if not uw:
+                    next_review = datetime.now()
+                    conn.execute('''
+                        INSERT INTO user_words
+                        (user_id, word_id, correct_count, last_reviewed, next_review, srs_interval, in_wrongbook)
+                        VALUES (?, ?, 0, datetime('now'), ?, 0, 1)
+                    ''', (user_id, word_id, next_review))
+                    imported_count += 1
+
         conn.commit()
         conn.close()
-        
+
         return jsonify({
             'message': f'Successfully imported {imported_count} words',
             'imported_count': imported_count
         })
-    
+
     except Exception as e:
         return jsonify({'error': f'Error processing CSV: {str(e)}'}), 400
 
@@ -555,9 +494,6 @@ def self_test():
     })
 
 if __name__ == '__main__':
-    # Initialize database and seed data
-    init_db()
-    seed_initial_data()
     
     # Run the application
     app.run(debug=True, host='0.0.0.0', port=5000)
