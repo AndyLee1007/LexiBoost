@@ -256,10 +256,19 @@ function showAnswerResult(answerData) {
     const expEn = answerData.explanation_en || '';
     const expZh = answerData.explanation_zh || '';
     const expEl = document.getElementById('explanation');
-    expEl.innerHTML = `
-        <div><strong>Correct answer (EN):</strong> ${expEn}</div>
-        <div><strong>正确释义（ZH）：</strong> ${expZh || '（无）'}</div>
-    `;
+    expEl.innerHTML = '';
+    const enDiv = document.createElement('div');
+    const enStrong = document.createElement('strong');
+    enStrong.textContent = 'Correct answer (EN):';
+    enDiv.appendChild(enStrong);
+    enDiv.appendChild(document.createTextNode(' ' + expEn));
+    expEl.appendChild(enDiv);
+    const zhDiv = document.createElement('div');
+    const zhStrong = document.createElement('strong');
+    zhStrong.textContent = '正确释义（ZH）：';
+    zhDiv.appendChild(zhStrong);
+    zhDiv.appendChild(document.createTextNode(' ' + (expZh || '（无）')));
+    expEl.appendChild(zhDiv);
 
     showScreen('result-screen');
 }
