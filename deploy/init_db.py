@@ -221,28 +221,6 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                 continue
             yield line
 
-    def _parse_str_list(cell: str) -> List[str]:
-        """Parse a list of strings from CSV cell (JSON / Python-literal / comma separated)."""
-        if not cell:
-            return []
-        s = cell.strip()
-        # JSON first
-        try:
-            v = json.loads(s)
-            if isinstance(v, list):
-                return [str(x).strip() for x in v]
-        except Exception:
-            pass
-        # Python literal (single quotes etc.)
-        try:
-            v = ast.literal_eval(s)
-            if isinstance(v, list):
-                return [str(x).strip() for x in v]
-        except Exception:
-            pass
-        # fallback: comma separated
-        return [t.strip() for t in s.split(",") if t.strip()]
-
     def _parse_examples(cell: str) -> List[Dict[str, Any]]:
         """Parse examples: list of dicts with keys 'en' and 'zh'."""
         if not cell:
