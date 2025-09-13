@@ -82,8 +82,8 @@ class WordExplanation(BaseModel):
     register: Optional[str] = Field(None, description="Optional: formality/usage register (e.g., academic, informal).")
     notes: Optional[str] = Field(None, description="Optional: pitfalls, common confusions, or collocations.")
     examples: List[ExampleItem] = Field(..., min_items=1, max_items=3)
-    distractors: List[str] = Field(..., min_items=3, max_items=3, description="3 plausible but incorrect English definitions for quiz options.")
-
+    distractors_en: List[str] = Field(..., min_items=3, max_items=3, description="3 plausible but incorrect English definitions for quiz options.")
+    distractors_zh: List[str] = Field(..., min_items=3, max_items=3, description="Chinese translations aligned with distractors_en.")
 # ---------------------------
 # Prompt & LLM call
 # ---------------------------
@@ -111,12 +111,14 @@ Produce STRICT JSON with keys:
 - register (optional)
 - notes (optional)
 - examples (1-2 items, each with en and zh)
-- distractors (3 alternative incorrect definitions in English only, same style as definition_en, plausible but clearly wrong)
+- distractors_en (3 alternative incorrect definitions in English only, same style as definition_en, plausible but clearly wrong)
+- distractors_zh (the natural Chinese translations of the 3 distractors above, aligned with distractors_en)
 
 Requirements:
 - "definition_en" should be single-sense and level-aware: {level}.
 - "definition_zh" should be natural, correct, and aligned with definition_en.
-- "distractors" must look realistic but be wrong for this word, not random nonsense.
+- "distractors_en" must look realistic but be wrong for this word, not random nonsense.
+- "distractors_zh" must be faithful translations of "distractors_en".
 - Examples must use the word in exactly that sense.
 - No extra keys. No preface. No code fences.
 

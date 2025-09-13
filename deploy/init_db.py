@@ -8,7 +8,7 @@ import sqlite3
 import json
 import csv
 import random
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 import os
 
 # Database configuration
@@ -25,10 +25,11 @@ def get_db_connection():
     return conn
 
 def init_db():
-    """Initialize database with required tables"""
+    """Initialize database with required tables (with distractors_en/zh)."""
     conn = get_db_connection()
     cur = conn.cursor()
 
+    # users
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +37,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # sessions
     cur.execute("""
     CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,11 +46,12 @@ def init_db():
         total_questions INTEGER DEFAULT 0,
         correct_answers INTEGER DEFAULT 0,
         score INTEGER DEFAULT 0,
-        completed BOOLEAN DEFAULT 0,
+        completed INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id)
     )""")
 
+    # words
     cur.execute("""
     CREATE TABLE IF NOT EXISTS words (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,6 +64,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # word_pos
     cur.execute("""
     CREATE TABLE IF NOT EXISTS word_pos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +73,7 @@ def init_db():
         FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
     )""")
 
+    # word_examples
     cur.execute("""
     CREATE TABLE IF NOT EXISTS word_examples (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +83,7 @@ def init_db():
         FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
     )""")
 
+    # user_words
     cur.execute("""
     CREATE TABLE IF NOT EXISTS user_words (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,11 +93,12 @@ def init_db():
         last_reviewed TIMESTAMP,
         next_review TIMESTAMP,
         srs_interval INTEGER DEFAULT 0,
-        in_wrongbook BOOLEAN DEFAULT 1,
+        in_wrongbook INTEGER DEFAULT 1,
         FOREIGN KEY (user_id) REFERENCES users (id),
         FOREIGN KEY (word_id) REFERENCES words (id)
     )""")
 
+    # question_attempts
     cur.execute("""
     CREATE TABLE IF NOT EXISTS question_attempts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,26 +107,35 @@ def init_db():
         question_text TEXT,
         correct_answer TEXT,
         user_answer TEXT,
-        is_correct BOOLEAN,
+        is_correct INTEGER,
         explanation TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (session_id) REFERENCES sessions (id),
         FOREIGN KEY (word_id) REFERENCES words (id)
     )""")
 
+    # --- Distractors: migrate to en/zh + ord ---
+    # Check existing schema
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='word_distractors'")
+    
+    # fresh create (new schema)
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS word_distractors (
+    CREATE TABLE word_distractors (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         word_id INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
+        ord INTEGER NOT NULL,             -- 0,1,2 to keep order
+        en TEXT NOT NULL,
+        zh TEXT,                          -- nullable; fill later if needed
+        FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE,
+        UNIQUE(word_id, ord)              -- exactly 3 per word by app logic
     )""")
 
-    # Index for faster lookups
+    # Indexes
     cur.execute("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_pos_word_id ON word_pos(word_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ex_word_id ON word_examples(word_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_dis_word_id ON word_distractors(word_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_dis_word_ord ON word_distractors(word_id, ord)")
 
     conn.commit()
     conn.close()
@@ -178,18 +194,28 @@ def _parse_str_list(cell: str) -> List[str]:
 
 def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
     """Import words and related fields from CSV into SQLite.
+
     CSV expected columns (some optional):
-      word, category, pos, register, examples, distractors,
-      definition_zh, definition_en, notes
+      word, category, pos, register, examples,
+      definition_zh, definition_en, notes,
+      # NEW (preferred):
+      distractors_en, distractors_zh
+      # OLD (still supported):
+      distractors
+
     - pos: list[str] (JSON / Python-literal / comma-separated)
     - examples: list[{'en': str, 'zh': str}] (JSON / Python-literal)
-    - distractors: list[str] (JSON / Python-literal / comma-separated)
+    - distractors_en / distractors_zh: list[str] (JSON / Python-literal / comma-separated)
+    - distractors (old): list[str] (JSON / Python-literal / comma-separated)
     """
     if not os.path.exists(csv_path):
         print(f"[WARN] CSV not found: {csv_path}")
         return
 
-    # --- helpers (local to this function) ---
+    import ast
+    import json
+
+    # --- helpers ---
     def _line_iter(f):
         """Filter out comments (#...) and blank lines."""
         for line in f:
@@ -220,9 +246,6 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
         # fallback: comma separated
         return [t.strip() for t in s.split(",") if t.strip()]
 
-    def _parse_pos(cell: str) -> List[str]:
-        return _parse_str_list(cell)
-
     def _parse_examples(cell: str) -> List[Dict[str, Any]]:
         """Parse examples: list of dicts with keys 'en' and 'zh'."""
         if not cell:
@@ -244,6 +267,7 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
             pass
         return []
 
+    # detect distractor table schema (new vs old)
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -267,9 +291,15 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
             category      = (row.get("category") or "").strip()
             notes         = (row.get("notes") or "").strip()
 
-            pos_list    = _parse_pos(row.get("pos") or "")
-            examples    = _parse_examples(row.get("examples") or "")
-            distractors = _parse_str_list(row.get("distractors") or "")
+            pos_list  = _parse_str_list(row.get("pos") or "")
+            examples  = _parse_examples(row.get("examples") or "")
+
+            # NEW preferred fields
+            distractors_en = _parse_str_list(row.get("distractors_en") or "")
+            distractors_zh = _parse_str_list(row.get("distractors_zh") or "")
+
+            # OLD fallback
+            old_distractors = _parse_str_list(row.get("distractors") or "")
 
             # upsert words
             cur.execute("SELECT id FROM words WHERE word = ? LIMIT 1", (word,))
@@ -313,19 +343,42 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                         (word_id, en, zh)
                     )
 
-            # Insert distractors
-            for d in distractors:
-                d = d.strip()
-                if d:
+            # Insert distractors (new schema -> (ord, en, zh); old schema -> text)
+            
+            pairs: List[Tuple[str, Optional[str]]] = []
+
+            if distractors_en:
+                # Use new fields; align length to min(len_en, len_zh) if zh provided
+                if distractors_zh:
+                    m = min(len(distractors_en), len(distractors_zh))
+                    if m < len(distractors_en) or m < len(distractors_zh):
+                        print(f"[WARN] '{word}': distractors_en/zh length mismatch; using first {m}.")
+                    pairs = [(distractors_en[i], distractors_zh[i]) for i in range(m)]
+                else:
+                    pairs = [(d, None) for d in distractors_en]
+            elif old_distractors:
+                # Backward-compat: map old English-only to en, zh=None
+                pairs = [(d, None) for d in old_distractors]
+            else:
+                pairs = []
+
+            # keep only first 3; warn if more
+            if len(pairs) > 3:
+                print(f"[WARN] '{word}': more than 3 distractors provided; truncating to 3.")
+                pairs = pairs[:3]
+
+            for i, (en_txt, zh_txt) in enumerate(pairs):
+                en_txt = (en_txt or "").strip()
+                zh_txt = (zh_txt or None)
+                if en_txt:  # must have English text
                     cur.execute(
-                        "INSERT INTO word_distractors(word_id, text) VALUES (?, ?)",
-                        (word_id, d)
+                        "INSERT INTO word_distractors(word_id, ord, en, zh) VALUES (?, ?, ?, ?)",
+                        (word_id, i, en_txt, zh_txt)
                     )
 
     conn.commit()
     conn.close()
     print(f"[INFO] CSV import done: inserted={inserted}, updated={updated}, file={csv_path}")
-
 
 # Mock LLM sentence generation
 def generate_sentence_with_word(word):

@@ -30,6 +30,10 @@ def get_srs_intervals():
     """Return SRS intervals in days"""
     return [0, 1, 3, 7, 14]
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    v = os.getenv(name, "")
+    return str(v).lower() in ("1", "true", "yes", "on") or (default and v == "")
+
 def calculate_next_review(current_interval_index, is_correct):
     """Calculate next review date based on SRS"""
     intervals = get_srs_intervals()
@@ -161,7 +165,7 @@ def start_session(user_id):
 
 @app.route('/api/sessions/<int:session_id>/question')
 def get_question(session_id):
-    """Get next question for the session (reads from new schema)."""
+    """Get next question; returns i18n choices and hover flag, with strict word validation."""
     conn = get_db_connection()
 
     # 1) validate session
@@ -181,36 +185,56 @@ def get_question(session_id):
         return jsonify({'session_complete': True})
 
     # 3) candidate words: due wrongbook first, then unseen
+    #    严格过滤：word 非空且 definition_en 非空
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
         JOIN user_words uw ON w.id = uw.word_id 
         WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
           AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
+          AND TRIM(w.word) <> '' AND TRIM(IFNULL(w.definition_en,'')) <> ''
         ORDER BY uw.next_review ASC
-        LIMIT 10
+        LIMIT 20
     ''', (user_id,)).fetchall()
 
     unseen_words = conn.execute('''
         SELECT w.* FROM words w
-        WHERE w.id NOT IN (
-            SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?
-        )
+        WHERE TRIM(w.word) <> '' AND TRIM(IFNULL(w.definition_en,'')) <> ''
+          AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
         ORDER BY RANDOM()
-        LIMIT 10
+        LIMIT 20
     ''', (user_id,)).fetchall()
 
-    available_words = list(wrongbook_words) + list(unseen_words)
-    if not available_words:
+    # 4) 合并并在 Python 侧再做一次保险过滤
+    def _valid(row):
+        return bool((row['word'] or '').strip()) and bool((row['definition_en'] or '').strip())
+    candidates = [w for w in (list(wrongbook_words) + list(unseen_words)) if _valid(w)]
+
+    if not candidates:
         conn.close()
-        return jsonify({'error': 'No words available'}), 400
+        return jsonify({'error': 'No valid words available. Please seed the DB or clean empty rows.'}), 400
 
-    target = random.choice(available_words)
+    target = random.choice(candidates)
     word_id = target['id']
-    word_txt = target['word']
-    correct_definition = target['definition_en']
+    word_txt = (target['word'] or '').strip()
+    correct_en = (target['definition_en'] or '').strip()
+    correct_zh = (target['definition_zh'] or '').strip()
 
-    # 4) sentence: prefer DB example
+    # 双重保险：若仍然无效，直接换一条
+    if not word_txt or not correct_en:
+        for cand in candidates:
+            if (cand['word'] or '').strip() and (cand['definition_en'] or '').strip():
+                target = cand
+                word_id = target['id']
+                word_txt = (target['word'] or '').strip()
+                correct_en = (target['definition_en'] or '').strip()
+                correct_zh = (target['definition_zh'] or '').strip()
+                break
+    if not word_txt or not correct_en:
+        conn.close()
+        return jsonify({'error': 'No valid question can be formed for the selected word.'}), 400
+
+    # 5) sentence: prefer DB example
     ex = conn.execute(
         'SELECT en, zh FROM word_examples WHERE word_id = ? ORDER BY RANDOM() LIMIT 1',
         (word_id,)
@@ -220,34 +244,58 @@ def get_question(session_id):
     else:
         sentence = generate_sentence_with_word(word_txt)
 
-    # 5) distractors: prefer word_distractors; top-up from other words if needed
-    rows = conn.execute(
-        'SELECT text FROM word_distractors WHERE word_id = ? ORDER BY id',
-        (word_id,)
-    ).fetchall()
-    distractors = [r['text'] for r in rows if (r['text'] or '').strip()]
+    # 6) distractors (new schema preferred; fallback to old)
+    cur = conn.execute("PRAGMA table_info(word_distractors)")
+    dis_cols = {row[1] for row in cur.fetchall()}
+    use_new_schema = {"ord", "en", "zh"}.issubset(dis_cols)
 
-    need = max(0, 2 - len(distractors))  # 至少要 2 个
+    distractors_i18n = []
+    if use_new_schema:
+        rows = conn.execute(
+            'SELECT ord, en, zh FROM word_distractors WHERE word_id = ? ORDER BY ord',
+            (word_id,)
+        ).fetchall()
+        for r in rows:
+            en = (r['en'] or '').strip()
+            zh = (r['zh'] or '').strip()
+            if en and en != correct_en:
+                distractors_i18n.append({'en': en, 'zh': zh})
+    else:
+        rows = conn.execute(
+            'SELECT text FROM word_distractors WHERE word_id = ? ORDER BY id',
+            (word_id,)
+        ).fetchall()
+        for r in rows:
+            en = (r['text'] or '').strip()
+            if en and en != correct_en:
+                distractors_i18n.append({'en': en, 'zh': ''})
+
+    # top-up if less than 2 with other words' definitions (避开正确义项 & 空值)
+    need = max(0, 2 - len(distractors_i18n))
     if need > 0:
         filler = conn.execute(
-            '''SELECT definition_en FROM words WHERE id != ? 
+            '''SELECT definition_en, definition_zh FROM words 
+               WHERE id != ? AND TRIM(IFNULL(definition_en,'')) <> '' AND definition_en <> ?
                ORDER BY RANDOM() LIMIT ?''',
-            (word_id, need)
+            (word_id, correct_en, need)
         ).fetchall()
-        distractors += [r['definition_en'] for r in filler if (r['definition_en'] or '').strip()]
+        for r in filler:
+            en = (r['definition_en'] or '').strip()
+            zh = (r['definition_zh'] or '').strip()
+            if en and en != correct_en:
+                distractors_i18n.append({'en': en, 'zh': zh})
 
-    # 截断到最多 3 个（前端通常 3 选/4 选）
-    distractors = distractors[:3]
-    # 兜底：仍不足 2 个时，用固定占位
-    while len(distractors) < 2:
-        distractors.append('a kind of weather pattern')
+    # keep max 3; ensure at least 2
+    distractors_i18n = distractors_i18n[:3]
+    while len(distractors_i18n) < 2:
+        distractors_i18n.append({'en': 'a kind of weather pattern', 'zh': '一种天气模式'})
 
-    # 6) build choices
-    choices = [correct_definition] + distractors
-    random.shuffle(choices)
+    # 7) build choices (i18n)
+    correct_pair = {'en': correct_en, 'zh': correct_zh}
+    choices_i18n = [correct_pair] + distractors_i18n
+    random.shuffle(choices_i18n)
 
-    # 可读的问题文案（前端也可自行渲染）
-    question_text = f"What does \"{word_txt}\" mean?"
+    hover_zh_enabled = _env_flag('LEXIBOOST_HOVER_ZH', default=False)
 
     conn.close()
     return jsonify({
@@ -255,10 +303,11 @@ def get_question(session_id):
         'word_id': word_id,
         'target_word': word_txt,
         'sentence': sentence,
-        'question_text': question_text,
-        'choices': choices,
-        'correct_answer': correct_definition,
-        'question_number': question_count + 1
+        'question_text': f'What does "{word_txt}" mean?',
+        'choices_i18n': choices_i18n,
+        'correct_answer_i18n': correct_pair,
+        'question_number': question_count + 1,
+        'hover_zh_enabled': hover_zh_enabled
     })
 
 @app.route('/api/sessions/<int:session_id>/answer', methods=['POST'])
@@ -269,49 +318,46 @@ def submit_answer(session_id):
     user_answer = data.get('user_answer')
     correct_answer = data.get('correct_answer')
     question_text = data.get('question_text')
-    
+
     is_correct = user_answer == correct_answer
-    
+
     conn = get_db_connection()
-    
-    # Get session info
+
+    # session & user
     session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
     user_id = session['user_id']
-    
-    # Record question attempt
+
+    # fetch zh explanation for this word (for popup bilingual content)
+    w = conn.execute('SELECT definition_zh, definition_en FROM words WHERE id = ?', (word_id,)).fetchone()
+    explanation_en = (w['definition_en'] or correct_answer or "").strip() if w else (correct_answer or "")
+    explanation_zh = (w['definition_zh'] or "").strip() if w else ""
+
+    # record attempt
     conn.execute('''
         INSERT INTO question_attempts 
         (session_id, word_id, question_text, correct_answer, user_answer, is_correct, explanation)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (session_id, word_id, question_text, correct_answer, user_answer, is_correct, correct_answer))
-    
-    # Update session score
+    ''', (session_id, word_id, question_text, correct_answer, user_answer, is_correct, explanation_en))
+
+    # score
     if is_correct:
         conn.execute(
             'UPDATE sessions SET correct_answers = correct_answers + 1, score = score + 1 WHERE id = ?',
             (session_id,)
         )
-    
-    conn.execute(
-        'UPDATE sessions SET total_questions = total_questions + 1 WHERE id = ?',
-        (session_id,)
-    )
-    
-    # Handle wrongbook and SRS
+    conn.execute('UPDATE sessions SET total_questions = total_questions + 1 WHERE id = ?', (session_id,))
+
+    # SRS & wrongbook
     user_word = conn.execute(
         'SELECT * FROM user_words WHERE user_id = ? AND word_id = ?',
         (user_id, word_id)
     ).fetchone()
-    
+
     if user_word:
-        # Update existing record
         if is_correct:
             new_correct_count = user_word['correct_count'] + 1
             next_review, next_interval = calculate_next_review(user_word['srs_interval'], True)
-            
-            # Remove from wrongbook after 3 correct answers
             in_wrongbook = 1 if new_correct_count < 3 else 0
-            
             conn.execute('''
                 UPDATE user_words 
                 SET correct_count = ?, last_reviewed = datetime('now'), 
@@ -319,7 +365,6 @@ def submit_answer(session_id):
                 WHERE id = ?
             ''', (new_correct_count, next_review, next_interval, in_wrongbook, user_word['id']))
         else:
-            # Reset on incorrect answer
             next_review, next_interval = calculate_next_review(0, False)
             conn.execute('''
                 UPDATE user_words 
@@ -328,21 +373,21 @@ def submit_answer(session_id):
                 WHERE id = ?
             ''', (next_review, next_interval, user_word['id']))
     else:
-        # Create new user_word record
         if not is_correct:
             next_review, next_interval = calculate_next_review(0, False)
             conn.execute('''
                 INSERT INTO user_words 
                 (user_id, word_id, correct_count, last_reviewed, next_review, srs_interval, in_wrongbook)
-                VALUES (?, ?, 0, datetime('now'), ?, ?, 1)
-            ''', (user_id, word_id, next_review, next_interval))
-    
+                VALUES (?, ?, 0, datetime('now'), ?, 0, 1)
+            ''', (user_id, word_id, next_review))
+
     conn.commit()
     conn.close()
-    
+
     return jsonify({
         'is_correct': is_correct,
-        'explanation': correct_answer,
+        'explanation_en': explanation_en,
+        'explanation_zh': explanation_zh,
         'score_change': 1 if is_correct else 0
     })
 
