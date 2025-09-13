@@ -221,26 +221,7 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                 continue
             yield line
 
-    def _parse_examples(cell: str) -> List[Dict[str, Any]]:
-        """Parse examples: list of dicts with keys 'en' and 'zh'."""
-        if not cell:
-            return []
-        s = cell.strip()
-        # JSON first
-        try:
-            v = json.loads(s)
-            if isinstance(v, list):
-                return v
-        except Exception:
-            pass
-        # Python literal (single quotes)
-        try:
-            v = ast.literal_eval(s)
-            if isinstance(v, list):
-                return v
-        except Exception:
-            pass
-        return []
+# (Remove lines 157–177 entirely; do not replace with anything.)
 
     # detect distractor table schema (new vs old)
     conn = get_db_connection()
