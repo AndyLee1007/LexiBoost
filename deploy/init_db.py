@@ -56,8 +56,6 @@ def init_db():
     CREATE TABLE IF NOT EXISTS words (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         word TEXT NOT NULL UNIQUE,
-        definition_en TEXT NOT NULL,
-        definition_zh TEXT,
         register TEXT,
         category TEXT,
         notes TEXT,
@@ -194,20 +192,10 @@ def _parse_str_list(cell: str) -> List[str]:
     return [t.strip() for t in s.split(",") if t.strip()]
 
 def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
-    """Import words and related fields from CSV into SQLite.
+    """Import words from CSV into SQLite (simplified - only word and metadata).
 
-    CSV expected columns (some optional):
-      word, category, pos, register, examples,
-      definition_zh, definition_en, notes,
-      # NEW (preferred):
-      distractors_en, distractors_zh
-      # OLD (still supported):
-      distractors
-
-    - pos: list[str] (JSON / Python-literal / comma-separated)
-    - examples: list[{'en': str, 'zh': str}] (JSON / Python-literal)
-    - distractors_en / distractors_zh: list[str] (JSON / Python-literal / comma-separated)
-    - distractors (old): list[str] (JSON / Python-literal / comma-separated)
+    CSV expected columns:
+      word, category (optional), register (optional), notes (optional)
     """
     if not os.path.exists(csv_path):
         print(f"[WARN] CSV not found: {csv_path}")
@@ -230,24 +218,23 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
 
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(_line_iter(f))
-        need = {"word", "definition_en"}
-        miss = need - set(reader.fieldnames or [])
-        if miss:
-            raise ValueError(f"CSV missing columns: {miss}; got {reader.fieldnames}")
+        needed_columns = {"word"}
+        available_columns = set(reader.fieldnames or [])
+        missing_columns = needed_columns - available_columns
+        if missing_columns:
+            raise ValueError(f"CSV missing required columns: {missing_columns}; got {reader.fieldnames}")
 
         for row in reader:
             word = (row.get("word") or "").strip()
             if not word:
                 continue
 
-            definition_en = (row.get("definition_en") or "").strip()
-            definition_zh = (row.get("definition_zh") or "").strip()
-            register      = (row.get("register") or "").strip()
-            category      = (row.get("category") or "").strip()
-            notes         = (row.get("notes") or "").strip()
+            register = (row.get("register") or "").strip()
+            category = (row.get("category") or "").strip()
+            notes = (row.get("notes") or "").strip()
 
-            pos_list  = _parse_str_list(row.get("pos") or "")
-            examples  = _parse_examples(row.get("examples") or "")
+            pos_list = _parse_str_list(row.get("pos") or "")
+            examples = _parse_examples(row.get("examples") or "")
 
             # NEW preferred fields
             distractors_en = _parse_str_list(row.get("distractors_en") or "")
@@ -263,13 +250,11 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                 word_id = row0["id"]
                 cur.execute("""
                     UPDATE words
-                       SET definition_en = ?,
-                           definition_zh = ?,
-                           register      = ?,
+                       SET register      = ?,
                            category      = ?,
                            notes         = ?
                      WHERE id = ?
-                """, (definition_en, definition_zh, register, category, notes, word_id))
+                """, (register, category, notes, word_id))
                 updated += 1
                 # Clean up and rebuild children
                 cur.execute("DELETE FROM word_pos         WHERE word_id = ?", (word_id,))
@@ -277,9 +262,9 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                 cur.execute("DELETE FROM word_distractors WHERE word_id = ?", (word_id,))
             else:
                 cur.execute("""
-                    INSERT INTO words(word, definition_en, definition_zh, register, category, notes)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (word, definition_en, definition_zh, register, category, notes))
+                    INSERT INTO words(word, register, category, notes)
+                    VALUES (?, ?, ?, ?)
+                """, (word, register, category, notes))
                 word_id = cur.lastrowid
                 inserted += 1
 

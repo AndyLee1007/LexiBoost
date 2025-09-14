@@ -13,6 +13,15 @@ import io
 from datetime import datetime, timedelta
 import random
 import os
+import sys
+
+# Import the explainer module for dynamic definition generation
+try:
+    from data.explainer import explain_word
+    EXPLAINER_AVAILABLE = True
+except ImportError:
+    print("[WARN] data.explainer module not available. Dynamic definitions disabled.")
+    EXPLAINER_AVAILABLE = False
 
 app = Flask(__name__)
 CORS(app)
@@ -38,6 +47,63 @@ def get_srs_intervals():
 def _env_flag(name: str, default: bool = False) -> bool:
     v = os.getenv(name, "")
     return str(v).lower() in ("1", "true", "yes", "on") or (default and v == "")
+
+def get_word_definitions(word: str, level: str = "k12") -> dict:
+    """
+    Get definitions dynamically using the explainer service.
+    Returns dict with 'definition_en', 'definition_zh', and 'distractors_i18n'
+    Falls back to simple definitions if service unavailable.
+    """
+    if not EXPLAINER_AVAILABLE:
+        # Fallback definitions
+        return {
+            'definition_en': f'Definition of "{word}"',
+            'definition_zh': f'"{word}"的定义',
+            'distractors_i18n': [
+                {'en': 'a common everyday object', 'zh': '一个常见的日常用品'},
+                {'en': 'a type of activity or process', 'zh': '一种活动或过程'},
+                {'en': 'a general concept or idea', 'zh': '一个通用概念或想法'}
+            ]
+        }
+    
+    try:
+        # Use the explainer to get dynamic definitions
+        explanation = explain_word(word, level=level)
+        
+        definition_en = explanation.get('definition_en', f'Definition of "{word}"')
+        definition_zh = explanation.get('definition_zh', f'"{word}"的定义')
+        
+        # Get distractors from the explanation
+        distractors_en = explanation.get('distractors_en', [])
+        distractors_zh = explanation.get('distractors_zh', [])
+        
+        # Convert to i18n format
+        distractors_i18n = []
+        for i, en_dist in enumerate(distractors_en):
+            zh_dist = distractors_zh[i] if i < len(distractors_zh) else ""
+            distractors_i18n.append({'en': en_dist, 'zh': zh_dist})
+        
+        # Ensure we have at least 2 distractors
+        while len(distractors_i18n) < 2:
+            distractors_i18n.append({'en': 'a general term or concept', 'zh': '一个通用术语或概念'})
+        
+        return {
+            'definition_en': definition_en,
+            'definition_zh': definition_zh,
+            'distractors_i18n': distractors_i18n[:3]  # Limit to 3
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get dynamic definition for '{word}': {e}")
+        # Fallback definitions
+        return {
+            'definition_en': f'Definition of "{word}"',
+            'definition_zh': f'"{word}"的定义',
+            'distractors_i18n': [
+                {'en': 'a common everyday object', 'zh': '一个常见的日常用品'},
+                {'en': 'a type of activity or process', 'zh': '一种活动或过程'},
+            ]
+        }
 
 def calculate_next_review(current_interval_index, is_correct):
     """Calculate next review date based on SRS"""
@@ -190,21 +256,21 @@ def get_question(session_id):
         return jsonify({'session_complete': True})
 
     # 3) candidate words: due wrongbook first, then unseen
-    #    严格过滤：word 非空且 definition_en 非空
+    #    Only check for non-empty word names since definitions are now dynamic
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
         JOIN user_words uw ON w.id = uw.word_id 
         WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
           AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
-          AND TRIM(w.word) <> '' AND TRIM(IFNULL(w.definition_en,'')) <> ''
+          AND TRIM(w.word) <> ''
         ORDER BY uw.next_review ASC
         LIMIT 20
     ''', (user_id,)).fetchall()
 
     unseen_words = conn.execute('''
         SELECT w.* FROM words w
-        WHERE TRIM(w.word) <> '' AND TRIM(IFNULL(w.definition_en,'')) <> ''
+        WHERE TRIM(w.word) <> ''
           AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
         ORDER BY RANDOM()
         LIMIT 20
@@ -212,32 +278,33 @@ def get_question(session_id):
 
     # 4) 合并并在 Python 侧再做一次保险过滤
     def _valid(row):
-        return bool((row['word'] or '').strip()) and bool((row['definition_en'] or '').strip())
+        return bool((row['word'] or '').strip())
     candidates = [w for w in (list(wrongbook_words) + list(unseen_words)) if _valid(w)]
 
     if not candidates:
         conn.close()
-        return jsonify({'error': 'No valid words available. Please seed the DB or clean empty rows.'}), 400
+        return jsonify({'error': 'No valid words available. Please seed the DB.'}), 400
 
     target = random.choice(candidates)
     word_id = target['id']
     word_txt = (target['word'] or '').strip()
-    correct_en = (target['definition_en'] or '').strip()
-    correct_zh = (target['definition_zh'] or '').strip()
 
-    # 双重保险：若仍然无效，直接换一条
-    if not word_txt or not correct_en:
+    # Double check word validity
+    if not word_txt:
         for cand in candidates:
-            if (cand['word'] or '').strip() and (cand['definition_en'] or '').strip():
+            if (cand['word'] or '').strip():
                 target = cand
                 word_id = target['id']
                 word_txt = (target['word'] or '').strip()
-                correct_en = (target['definition_en'] or '').strip()
-                correct_zh = (target['definition_zh'] or '').strip()
                 break
-    if not word_txt or not correct_en:
+    if not word_txt:
         conn.close()
         return jsonify({'error': 'No valid question can be formed for the selected word.'}), 400
+
+    # 5) Get definitions dynamically
+    definitions = get_word_definitions(word_txt)
+    correct_en = definitions['definition_en']
+    correct_zh = definitions['definition_zh']
 
     # 5) sentence: prefer DB example
     ex = conn.execute(
@@ -249,51 +316,38 @@ def get_question(session_id):
     else:
         sentence = generate_sentence_with_word(word_txt)
 
-    # 6) distractors (new schema preferred; fallback to old)
-    cur = conn.execute("PRAGMA table_info(word_distractors)")
-    dis_cols = {row[1] for row in cur.fetchall()}
-    use_new_schema = {"ord", "en", "zh"}.issubset(dis_cols)
-
-    distractors_i18n = []
-    if use_new_schema:
-        rows = conn.execute(
-            'SELECT ord, en, zh FROM word_distractors WHERE word_id = ? ORDER BY ord',
+    # 6) distractors - use dynamic distractors from explainer service
+    distractors_i18n = definitions['distractors_i18n']
+    
+    # If we don't have enough distractors, supplement with random word definitions
+    if len(distractors_i18n) < 2:
+        # Get additional distractors from other words in the database
+        other_words = conn.execute(
+            'SELECT word FROM words WHERE id != ? ORDER BY RANDOM() LIMIT 5',
             (word_id,)
         ).fetchall()
-        for r in rows:
-            en = (r['en'] or '').strip()
-            zh = (r['zh'] or '').strip()
-            if en and en != correct_en:
-                distractors_i18n.append({'en': en, 'zh': zh})
-    else:
-        rows = conn.execute(
-            'SELECT text FROM word_distractors WHERE word_id = ? ORDER BY id',
-            (word_id,)
-        ).fetchall()
-        for r in rows:
-            en = (r['text'] or '').strip()
-            if en and en != correct_en:
-                distractors_i18n.append({'en': en, 'zh': ''})
+        
+        for other_word in other_words:
+            if len(distractors_i18n) >= 3:
+                break
+            other_word_txt = other_word['word']
+            try:
+                other_defs = get_word_definitions(other_word_txt)
+                distractors_i18n.append({
+                    'en': other_defs['definition_en'],
+                    'zh': other_defs['definition_zh']
+                })
+            except Exception:
+                # Fallback distractor
+                distractors_i18n.append({
+                    'en': f'related to {other_word_txt}',
+                    'zh': f'与{other_word_txt}相关的'
+                })
 
-    # top-up if less than 2 with other words' definitions (避开正确义项 & 空值)
-    need = max(0, 2 - len(distractors_i18n))
-    if need > 0:
-        filler = conn.execute(
-            '''SELECT definition_en, definition_zh FROM words 
-               WHERE id != ? AND TRIM(IFNULL(definition_en,'')) <> '' AND definition_en <> ?
-               ORDER BY RANDOM() LIMIT ?''',
-            (word_id, correct_en, need)
-        ).fetchall()
-        for r in filler:
-            en = (r['definition_en'] or '').strip()
-            zh = (r['definition_zh'] or '').strip()
-            if en and en != correct_en:
-                distractors_i18n.append({'en': en, 'zh': zh})
-
-    # keep max 3; ensure at least 2
-    distractors_i18n = distractors_i18n[:3]
+    # Ensure we have at least 2 distractors and at most 3
     while len(distractors_i18n) < 2:
-        distractors_i18n.append({'en': 'a kind of weather pattern', 'zh': '一种天气模式'})
+        distractors_i18n.append({'en': 'a general concept', 'zh': '一个一般概念'})
+    distractors_i18n = distractors_i18n[:3]
 
     # 7) build choices (i18n)
     correct_pair = {'en': correct_en, 'zh': correct_zh}
@@ -332,10 +386,16 @@ def submit_answer(session_id):
     session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
     user_id = session['user_id']
 
-    # fetch zh explanation for this word (for popup bilingual content)
-    w = conn.execute('SELECT definition_zh, definition_en FROM words WHERE id = ?', (word_id,)).fetchone()
-    explanation_en = (w['definition_en'] or correct_answer or "").strip() if w else (correct_answer or "")
-    explanation_zh = (w['definition_zh'] or "").strip() if w else ""
+    # Get word info to fetch dynamic definitions for explanations
+    w = conn.execute('SELECT word FROM words WHERE id = ?', (word_id,)).fetchone()
+    if w:
+        word_txt = w['word']
+        definitions = get_word_definitions(word_txt)
+        explanation_en = definitions['definition_en']
+        explanation_zh = definitions['definition_zh']
+    else:
+        explanation_en = correct_answer or ""
+        explanation_zh = ""
 
     # record attempt
     conn.execute('''
@@ -439,7 +499,7 @@ def get_user_stats(user_id):
 
 @app.route('/api/users/<int:user_id>/wrongbook/import', methods=['POST'])
 def import_wrongbook(user_id):
-    """Import wrongbook words from CSV (columns: word, definition)."""
+    """Import wrongbook words from CSV (columns: word)."""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     file = request.files['file']
@@ -456,13 +516,12 @@ def import_wrongbook(user_id):
         imported_count = 0
 
         for row in csv_reader:
-            if len(row) >= 2:
+            if len(row) >= 1:
                 word = (row[0] or '').strip()
-                definition = (row[1] or '').strip()
-                if not word or not definition:
+                if not word:
                     continue
 
-                # find or create word (definition_en)
+                # find or create word
                 existing = conn.execute(
                     'SELECT id FROM words WHERE word = ?',
                     (word,)
@@ -471,8 +530,8 @@ def import_wrongbook(user_id):
                     word_id = existing['id']
                 else:
                     cursor = conn.execute(
-                        'INSERT INTO words (word, definition_en) VALUES (?, ?)',
-                        (word, definition)
+                        'INSERT INTO words (word) VALUES (?)',
+                        (word,)
                     )
                     word_id = cursor.lastrowid
 
