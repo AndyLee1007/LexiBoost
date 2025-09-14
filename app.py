@@ -384,7 +384,7 @@ def submit_answer(session_id):
                 INSERT INTO user_words 
                 (user_id, word_id, correct_count, last_reviewed, next_review, srs_interval, in_wrongbook)
                 VALUES (?, ?, 0, datetime('now'), ?, ?, 1)
-            ''', (user_id, word_id, _to_sql_ts(next_review), next_interval))
+            ''', (user_id, word_id, next_review, next_interval))
 
     conn.commit()
     conn.close()
