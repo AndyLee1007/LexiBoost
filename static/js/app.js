@@ -234,8 +234,6 @@ async function submitAnswer() {
             body: JSON.stringify({
                 word_id: currentQuestion.word_id,
                 user_answer: selectedAnswer,
-                // compatibility for old backend
-                correct_answer: (currentQuestion.correct_answer_i18n && currentQuestion.correct_answer_i18n.en) || '',
                 // for record: you previously passed sentence; keep it unchanged
                 question_text: currentQuestion.sentence
             })
