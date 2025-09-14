@@ -30,6 +30,18 @@ body {
     animation: fadeIn 0.5s ease-in;
 }
 
+.tooltip {
+    position: absolute;
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    pointer-events: none; /* Prevent tooltip from interfering with mouse events */
+    z-index: 1000;
+    white-space: nowrap;
+}
+
 .hidden {
     display: none !important;
 }

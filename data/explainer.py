@@ -34,7 +34,7 @@ from openai._exceptions import APIStatusError, RateLimitError, APIConnectionErro
 #   AZURE_OPENAI_DEPLOYMENT   your deployed model name (e.g. gpt-4o-mini, gpt-4o, gpt-35-turbo)
 #
 # Optional:
-#   WORD_EXPLAINER_DEFAULT_LEVEL  default: "general"
+#   WORD_EXPLAINER_DEFAULT_LEVEL  default: "k12"
 #   WORD_EXPLAINER_TEMPERATURE    default: 0.2
 
 AZURE_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "").strip()
@@ -48,7 +48,7 @@ OPENAI_MODEL       = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 
 DEFAULT_INPUT_PATH = os.getenv("WORD_EXPLAINER_DEFAULT_PATH", "data/extracted/b1_words_with_topics.csv").strip()
 DEFAULT_OUTPUT_PATH = os.getenv("WORD_EXPLAINER_DEFAULT_OUTPUT_PATH", "data/explained/b1_words_with_topics_explained.csv").strip()
-DEFAULT_LEVEL = os.getenv("WORD_EXPLAINER_DEFAULT_LEVEL", "general")
+DEFAULT_LEVEL = os.getenv("WORD_EXPLAINER_DEFAULT_LEVEL", "k12")
 DEFAULT_TEMPERATURE = float(os.getenv("WORD_EXPLAINER_TEMPERATURE", "0.2"))
 
 def validate_azure_config():
@@ -82,13 +82,16 @@ class WordExplanation(BaseModel):
     register: Optional[str] = Field(None, description="Optional: formality/usage register (e.g., academic, informal).")
     notes: Optional[str] = Field(None, description="Optional: pitfalls, common confusions, or collocations.")
     examples: List[ExampleItem] = Field(..., min_items=1, max_items=3)
-
+    distractors_en: List[str] = Field(..., min_items=3, max_items=3, description="3 plausible but incorrect English definitions for quiz options.")
+    distractors_zh: List[str] = Field(..., min_items=3, max_items=3, description="Chinese translations aligned with distractors_en.")
 # ---------------------------
 # Prompt & LLM call
 # ---------------------------
 
-SYSTEM_PROMPT = """You are a bilingual lexicographer writing clear, accurate, non-plagiarized dictionary entries.
-Return STRICT JSON only (no markdown). Avoid IPA and HTML. Keep it concise but informative."""
+SYSTEM_PROMPT = """You are a bilingual lexicographer and quiz generator.
+Return STRICT JSON only (no markdown). Avoid IPA and HTML.
+
+Output must be concise, accurate, and usable for vocabulary learning apps."""
 
 def make_user_prompt(word: str, level: str) -> str:
     """
@@ -100,15 +103,23 @@ def make_user_prompt(word: str, level: str) -> str:
     return f"""
 Task:
 For the English word: {word!r}
-Produce STRICT JSON with keys: word, pos (array), definition_en, definition_zh, register (optional), notes (optional),
-examples (1-3 items, each with en and zh). The Chinese content must match the English meaning.
+Produce STRICT JSON with keys:
+- word
+- pos (array)
+- definition_en (the correct meaning, level-aware: {level})
+- definition_zh
+- register (optional)
+- notes (optional)
+- examples (1-2 items, each with en and zh)
+- distractors_en (3 alternative incorrect definitions in English only, same style as definition_en, plausible but clearly wrong)
+- distractors_zh (the natural Chinese translations of the 3 distractors above, aligned with distractors_en)
 
 Requirements:
-- Choose the most common sense for general usage; if polysemous, pick the sense most likely in daily contexts.
-- "pos" in short tags like "n", "v", "adj", "adv", "prep", "det", "pron", "aux", "conj", "interj".
-- "definition_en" should be single-sense, level-aware: {level}.
-- "definition_zh" should be natural, correct, and aligned with the English definition.
-- Examples must use the word in exactly that sense; avoid rare idioms; keep to CEFR B1~B2 range for general/k12.
+- "definition_en" should be single-sense and level-aware: {level}.
+- "definition_zh" should be natural, correct, and aligned with definition_en.
+- "distractors_en" must look realistic but be wrong for this word, not random nonsense.
+- "distractors_zh" must be faithful translations of "distractors_en".
+- Examples must use the word in exactly that sense.
 - No extra keys. No preface. No code fences.
 
 Output JSON only.

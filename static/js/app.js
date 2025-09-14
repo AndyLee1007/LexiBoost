@@ -8,6 +8,33 @@ let sessionScore = 0;
 let selectedAnswer = null;
 
 // Utility functions
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+let tooltipEl = null;
+
+function showTooltip(target, text) {
+    // remove existing tooltip
+    hideTooltip();
+
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'tooltip';
+    tooltipEl.textContent = text;
+
+    document.body.appendChild(tooltipEl);
+
+    // location below the target
+    const rect = target.getBoundingClientRect();
+    tooltipEl.style.left = rect.left + window.scrollX + 'px';
+    tooltipEl.style.top = rect.bottom + window.scrollY + 'px';
+}
+
+function hideTooltip() {
+    if (tooltipEl) {
+        tooltipEl.remove();
+        tooltipEl = null;
+    }
+}
+
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.add('hidden');
@@ -110,48 +137,75 @@ async function startQuizSession() {
 
 async function loadNextQuestion() {
     try {
-        const questionData = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
-        
-        if (questionData.session_complete) {
+        const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
+        if (q.session_complete) {
             await showSessionComplete();
             return;
         }
 
-        currentQuestion = questionData;
-        questionNumber = questionData.question_number;
+        currentQuestion = q;
+        questionNumber = q.question_number;
         selectedAnswer = null;
 
-        // Update UI
+        // basic information
         document.getElementById('question-number').textContent = questionNumber;
-        document.getElementById('sentence-text').textContent = questionData.sentence;
-        document.getElementById('target-word').textContent = questionData.target_word;
-        
-        // Highlight target word in sentence
-        const sentenceElement = document.getElementById('sentence-text');
-        const highlightedSentence = questionData.sentence.replace(
-            new RegExp(`\\b${questionData.target_word}\\b`, 'gi'),
-            `<mark>${questionData.target_word}</mark>`
-        );
-        sentenceElement.innerHTML = highlightedSentence;
+        document.getElementById('target-word').textContent = q.target_word;
 
-        // Create answer choices
+        // sentence highlighting (to prevent special characters from breaking regex)
+        const sentenceElement = document.getElementById('sentence-text');
+        const tw = (q.target_word || '').trim();
+        if (tw) {
+            // Clear the element
+            sentenceElement.textContent = '';
+            // Split the sentence into parts, keeping the target word
+            const re = new RegExp(`\\b${escapeRegExp(tw)}\\b`, 'gi');
+            let lastIndex = 0;
+            let match;
+            const sentence = q.sentence || '';
+            while ((match = re.exec(sentence)) !== null) {
+                // Add text before the match
+                if (match.index > lastIndex) {
+                    sentenceElement.appendChild(document.createTextNode(sentence.slice(lastIndex, match.index)));
+                }
+                // Add the highlighted word
+                const mark = document.createElement('mark');
+                mark.textContent = match[0];
+                sentenceElement.appendChild(mark);
+                lastIndex = re.lastIndex;
+            }
+            // Add any remaining text after the last match
+            if (lastIndex < sentence.length) {
+                sentenceElement.appendChild(document.createTextNode(sentence.slice(lastIndex)));
+            }
+        } else {
+            sentenceElement.textContent = q.sentence;
+        }
+
+        // options (using i18n)
         const choicesContainer = document.getElementById('answer-choices');
         choicesContainer.innerHTML = '';
-        
-        questionData.choices.forEach((choice, index) => {
+        (q.choices_i18n || []).forEach((c, idx) => {
             const choiceElement = document.createElement('div');
             choiceElement.className = 'choice';
-            choiceElement.textContent = choice;
-            choiceElement.onclick = () => selectChoice(choiceElement, choice);
+            choiceElement.textContent = c.en || ''; // default to English
+            choiceElement.dataset.en = c.en || '';
+            choiceElement.dataset.zh = c.zh || '';
+
+            // float tooltip
+            if (q.hover_zh_enabled && c.zh) {
+                choiceElement.addEventListener('mouseenter', () => showTooltip(choiceElement, c.zh));
+                choiceElement.addEventListener('mouseleave', hideTooltip);
+            }
+
+            choiceElement.onclick = () => selectChoice(choiceElement, c.en || '');
             choicesContainer.appendChild(choiceElement);
         });
 
-        // Reset submit button
+        // submit button
         document.getElementById('submit-answer').disabled = true;
-        
-        // Update progress
-        updateProgressBar(questionNumber - 1, 50);
 
+        // progress bar: completed is questionNumber - 1
+        updateProgressBar(questionNumber - 1, 50);
     } catch (error) {
         showError('Failed to load question. Please try again.');
     }
@@ -180,7 +234,7 @@ async function submitAnswer() {
             body: JSON.stringify({
                 word_id: currentQuestion.word_id,
                 user_answer: selectedAnswer,
-                correct_answer: currentQuestion.correct_answer,
+                // Note: maintaining backward compatibility with previous sentence field
                 question_text: currentQuestion.sentence
             })
         });
@@ -198,22 +252,41 @@ async function submitAnswer() {
 }
 
 function showAnswerResult(answerData) {
-    // Update choice colors
+    const correctEn = (currentQuestion.correct_answer_i18n && currentQuestion.correct_answer_i18n.en) || '';
+
+    // Highlight choices
     document.querySelectorAll('.choice').forEach(choice => {
-        if (choice.textContent === currentQuestion.correct_answer) {
+        if (choice.textContent === correctEn) {
             choice.classList.add('correct');
         } else if (choice.textContent === selectedAnswer && !answerData.is_correct) {
             choice.classList.add('incorrect');
         }
     });
 
-    // Show result screen
+    // Show result
     document.getElementById('result-title').textContent = answerData.is_correct ? '✅ Correct!' : '❌ Incorrect';
     document.getElementById('result-message').textContent = answerData.is_correct 
         ? 'Well done! You got it right.' 
         : 'Don\'t worry, keep learning!';
     document.getElementById('result-message').className = `result-message ${answerData.is_correct ? 'correct' : 'incorrect'}`;
-    document.getElementById('explanation').textContent = `Correct answer: ${answerData.explanation}`;
+
+    // explanation (if any) - bilingual display
+    const expEn = answerData.explanation_en || '';
+    const expZh = answerData.explanation_zh || '';
+    const expEl = document.getElementById('explanation');
+    expEl.innerHTML = '';
+    const enDiv = document.createElement('div');
+    const enStrong = document.createElement('strong');
+    enStrong.textContent = 'Correct answer (EN):';
+    enDiv.appendChild(enStrong);
+    enDiv.appendChild(document.createTextNode(' ' + expEn));
+    expEl.appendChild(enDiv);
+    const zhDiv = document.createElement('div');
+    const zhStrong = document.createElement('strong');
+    zhStrong.textContent = '正确释义（ZH）：';
+    zhDiv.appendChild(zhStrong);
+    zhDiv.appendChild(document.createTextNode(' ' + (expZh || '（无）')));
+    expEl.appendChild(zhDiv);
 
     showScreen('result-screen');
 }
