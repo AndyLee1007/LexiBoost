@@ -386,7 +386,6 @@ def submit_answer(session_id):
                 VALUES (?, ?, 0, datetime('now'), ?, ?, 1)
             ''', (user_id, word_id, _to_sql_ts(next_review), next_interval))
 
-
     conn.commit()
     conn.close()
 
