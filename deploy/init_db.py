@@ -64,26 +64,7 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    # word_pos
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS word_pos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        word_id INTEGER NOT NULL,
-        tag TEXT NOT NULL,
-        FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
-    )""")
-
-    # word_examples
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS word_examples (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        word_id INTEGER NOT NULL,
-        en TEXT NOT NULL,
-        zh TEXT,
-        FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
-    )""")
-
-    # user_words
+    # user_words - keep for learning progress tracking
     cur.execute("""
     CREATE TABLE IF NOT EXISTS user_words (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,7 +79,7 @@ def init_db():
         FOREIGN KEY (word_id) REFERENCES words (id)
     )""")
 
-    # question_attempts
+    # question_attempts - keep for session tracking
     cur.execute("""
     CREATE TABLE IF NOT EXISTS question_attempts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,100 +95,21 @@ def init_db():
         FOREIGN KEY (word_id) REFERENCES words (id)
     )""")
 
-    # --- Distractors: migrate to en/zh + ord ---
-    # Check existing schema
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='word_distractors'")
-    
-    # fresh create (new schema)
-    cur.execute("DROP TABLE IF EXISTS word_distractors")
-    cur.execute("""
-    CREATE TABLE word_distractors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        word_id INTEGER NOT NULL,
-        ord INTEGER NOT NULL,             -- 0,1,2 to keep order
-        en TEXT NOT NULL,
-        zh TEXT,                          -- nullable; fill later if needed
-        FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE,
-        UNIQUE(word_id, ord)              -- exactly 3 per word by app logic
-    )""")
-
-    # Indexes
+    # Indexes (only for remaining tables)
     cur.execute("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_pos_word_id ON word_pos(word_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_ex_word_id ON word_examples(word_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_dis_word_id ON word_distractors(word_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_dis_word_ord ON word_distractors(word_id, ord)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_words_user_id ON user_words(user_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_user_words_word_id ON user_words(word_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)")
 
     conn.commit()
     conn.close()
 
-def _parse_pos(cell: str) -> List[str]:
-    if not cell:
-        return []
-    s = cell.strip()
-    try:
-        # JSON first
-        return [str(x).strip() for x in json.loads(s)]
-    except Exception:
-        try:
-            return [str(x).strip() for x in ast.literal_eval(s)]
-        except Exception:
-            # fallback: comma separated
-            return [t.strip() for t in s.split(",") if t.strip()]
-
-def _parse_examples(cell: str) -> List[Dict[str, Any]]:
-    if not cell:
-        return []
-    s = cell.strip()
-    try:
-        v = json.loads(s)
-        if isinstance(v, list):
-            return v
-    except Exception:
-        pass
-    try:
-        v = ast.literal_eval(s)
-        if isinstance(v, list):
-            return v
-    except Exception:
-        pass
-    return []
-
-def _parse_str_list(cell: str) -> List[str]:
-    """Parse a list of strings from CSV cell (JSON / Python-literal / comma separated)."""
-    if not cell:
-        return []
-    s = cell.strip()
-    try:
-        v = json.loads(s)
-        if isinstance(v, list):
-            return [str(x).strip() for x in v]
-    except Exception:
-        pass
-    try:
-        v = ast.literal_eval(s)
-        if isinstance(v, list):
-            return [str(x).strip() for x in v]
-    except Exception:
-        pass
-    # fallback: comma separated
-    return [t.strip() for t in s.split(",") if t.strip()]
-
 def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
-    """Import words and related fields from CSV into SQLite.
+    """Import words from CSV into SQLite (simplified - only word definitions).
 
-    CSV expected columns (some optional):
-      word, category, pos, register, examples,
-      definition_zh, definition_en, notes,
-      # NEW (preferred):
-      distractors_en, distractors_zh
-      # OLD (still supported):
-      distractors
-
-    - pos: list[str] (JSON / Python-literal / comma-separated)
-    - examples: list[{'en': str, 'zh': str}] (JSON / Python-literal)
-    - distractors_en / distractors_zh: list[str] (JSON / Python-literal / comma-separated)
-    - distractors (old): list[str] (JSON / Python-literal / comma-separated)
+    CSV expected columns:
+      word, definition_en, definition_zh (optional), category (optional), 
+      register (optional), notes (optional)
     """
     if not os.path.exists(csv_path):
         print(f"[WARN] CSV not found: {csv_path}")
@@ -222,7 +124,6 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                 continue
             yield line
 
-    # detect distractor table schema (new vs old)
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -246,17 +147,7 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
             category      = (row.get("category") or "").strip()
             notes         = (row.get("notes") or "").strip()
 
-            pos_list  = _parse_str_list(row.get("pos") or "")
-            examples  = _parse_examples(row.get("examples") or "")
-
-            # NEW preferred fields
-            distractors_en = _parse_str_list(row.get("distractors_en") or "")
-            distractors_zh = _parse_str_list(row.get("distractors_zh") or "")
-
-            # OLD fallback
-            old_distractors = _parse_str_list(row.get("distractors") or "")
-
-            # upsert words
+            # upsert words (only basic word information)
             cur.execute("SELECT id FROM words WHERE word = ? LIMIT 1", (word,))
             row0 = cur.fetchone()
             if row0:
@@ -271,65 +162,13 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                      WHERE id = ?
                 """, (definition_en, definition_zh, register, category, notes, word_id))
                 updated += 1
-                # Clean up and rebuild children
-                cur.execute("DELETE FROM word_pos         WHERE word_id = ?", (word_id,))
-                cur.execute("DELETE FROM word_examples    WHERE word_id = ?", (word_id,))
-                cur.execute("DELETE FROM word_distractors WHERE word_id = ?", (word_id,))
             else:
-                cur.execute("""
-                    INSERT INTO words(word, definition_en, definition_zh, register, category, notes)
+                cursor = cur.execute("""
+                    INSERT INTO words (word, definition_en, definition_zh, register, category, notes)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (word, definition_en, definition_zh, register, category, notes))
-                word_id = cur.lastrowid
+                word_id = cursor.lastrowid
                 inserted += 1
-
-            # Insert pos
-            for tag in pos_list:
-                if tag:
-                    cur.execute("INSERT INTO word_pos(word_id, tag) VALUES (?, ?)", (word_id, tag))
-
-            # Insert examples
-            for ex in examples:
-                en = str(ex.get("en") or "").strip()
-                zh = str(ex.get("zh") or "").strip()
-                if en or zh:
-                    cur.execute(
-                        "INSERT INTO word_examples(word_id, en, zh) VALUES (?, ?, ?)",
-                        (word_id, en, zh)
-                    )
-
-            # Insert distractors (new schema -> (ord, en, zh); old schema -> text)
-            
-            pairs: List[Tuple[str, Optional[str]]] = []
-
-            if distractors_en:
-                # Use new fields; align length to min(len_en, len_zh) if zh provided
-                if distractors_zh:
-                    m = min(len(distractors_en), len(distractors_zh))
-                    if m < len(distractors_en) or m < len(distractors_zh):
-                        print(f"[WARN] '{word}': distractors_en/zh length mismatch; using first {m}.")
-                    pairs = [(distractors_en[i], distractors_zh[i]) for i in range(m)]
-                else:
-                    pairs = [(d, None) for d in distractors_en]
-            elif old_distractors:
-                # Backward-compat: map old English-only to en, zh=None
-                pairs = [(d, None) for d in old_distractors]
-            else:
-                pairs = []
-
-            # keep only first 3; warn if more
-            if len(pairs) > 3:
-                print(f"[WARN] '{word}': more than 3 distractors provided; truncating to 3.")
-                pairs = pairs[:3]
-
-            for i, (en_txt, zh_txt) in enumerate(pairs):
-                en_txt = (en_txt or "").strip()
-                zh_txt = (zh_txt or None)
-                if en_txt:  # must have English text
-                    cur.execute(
-                        "INSERT INTO word_distractors(word_id, ord, en, zh) VALUES (?, ?, ?, ?)",
-                        (word_id, i, en_txt, zh_txt)
-                    )
 
     conn.commit()
     conn.close()

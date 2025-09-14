@@ -239,61 +239,26 @@ def get_question(session_id):
         conn.close()
         return jsonify({'error': 'No valid question can be formed for the selected word.'}), 400
 
-    # 5) sentence: prefer DB example
-    ex = conn.execute(
-        'SELECT en, zh FROM word_examples WHERE word_id = ? ORDER BY RANDOM() LIMIT 1',
-        (word_id,)
-    ).fetchone()
-    if ex and (ex['en'] or ex['zh']):
-        sentence = ex['en'] or ex['zh']
-    else:
-        sentence = generate_sentence_with_word(word_txt)
+    # 5) generate sentence dynamically
+    sentence = generate_sentence_with_word(word_txt)
 
-    # 6) distractors (new schema preferred; fallback to old)
-    cur = conn.execute("PRAGMA table_info(word_distractors)")
-    dis_cols = {row[1] for row in cur.fetchall()}
-    use_new_schema = {"ord", "en", "zh"}.issubset(dis_cols)
-
+    # 6) generate distractors dynamically from other words' definitions
     distractors_i18n = []
-    if use_new_schema:
-        rows = conn.execute(
-            'SELECT ord, en, zh FROM word_distractors WHERE word_id = ? ORDER BY ord',
-            (word_id,)
-        ).fetchall()
-        for r in rows:
-            en = (r['en'] or '').strip()
-            zh = (r['zh'] or '').strip()
-            if en and en != correct_en:
-                distractors_i18n.append({'en': en, 'zh': zh})
-    else:
-        rows = conn.execute(
-            'SELECT text FROM word_distractors WHERE word_id = ? ORDER BY id',
-            (word_id,)
-        ).fetchall()
-        for r in rows:
-            en = (r['text'] or '').strip()
-            if en and en != correct_en:
-                distractors_i18n.append({'en': en, 'zh': ''})
+    filler = conn.execute(
+        '''SELECT definition_en, definition_zh FROM words 
+           WHERE id != ? AND TRIM(IFNULL(definition_en,'')) <> '' AND definition_en <> ?
+           ORDER BY RANDOM() LIMIT 2''',
+        (word_id, correct_en)
+    ).fetchall()
+    for r in filler:
+        en = (r['definition_en'] or '').strip()
+        zh = (r['definition_zh'] or '').strip()
+        if en and en != correct_en:
+            distractors_i18n.append({'en': en, 'zh': zh})
 
-    # top-up if less than 2 with other words' definitions (避开正确义项 & 空值)
-    need = max(0, 2 - len(distractors_i18n))
-    if need > 0:
-        filler = conn.execute(
-            '''SELECT definition_en, definition_zh FROM words 
-               WHERE id != ? AND TRIM(IFNULL(definition_en,'')) <> '' AND definition_en <> ?
-               ORDER BY RANDOM() LIMIT ?''',
-            (word_id, correct_en, need)
-        ).fetchall()
-        for r in filler:
-            en = (r['definition_en'] or '').strip()
-            zh = (r['definition_zh'] or '').strip()
-            if en and en != correct_en:
-                distractors_i18n.append({'en': en, 'zh': zh})
-
-    # keep max 3; ensure at least 2
-    distractors_i18n = distractors_i18n[:3]
+    # ensure at least 2 distractors
     while len(distractors_i18n) < 2:
-        distractors_i18n.append({'en': 'a kind of weather pattern', 'zh': '一种天气模式'})
+        distractors_i18n.append({'en': 'a general concept or idea', 'zh': '一般概念或想法'})
 
     # 7) build choices (i18n)
     correct_pair = {'en': correct_en, 'zh': correct_zh}

@@ -54,8 +54,8 @@ def test_session_and_question_flow():
     question_data = response.json()
     assert 'sentence' in question_data
     assert 'target_word' in question_data
-    assert 'choices' in question_data
-    assert len(question_data['choices']) == 3
+    assert 'choices_i18n' in question_data
+    assert len(question_data['choices_i18n']) == 3
     print("✅ Session and question flow working")
 
 def test_user_stats():
