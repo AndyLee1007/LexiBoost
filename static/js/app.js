@@ -234,8 +234,8 @@ async function submitAnswer() {
             body: JSON.stringify({
                 word_id: currentQuestion.word_id,
                 user_answer: selectedAnswer,
-                // Note: maintaining backward compatibility with previous sentence field
-                question_text: currentQuestion.sentence
+                correct_answer: currentQuestion.correct_answer_i18n.en,
+                question_text: currentQuestion.question_text
             })
         });
 
