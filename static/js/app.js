@@ -155,8 +155,28 @@ async function loadNextQuestion() {
         const sentenceElement = document.getElementById('sentence-text');
         const tw = (q.target_word || '').trim();
         if (tw) {
+            // Clear the element
+            sentenceElement.textContent = '';
+            // Split the sentence into parts, keeping the target word
             const re = new RegExp(`\\b${escapeRegExp(tw)}\\b`, 'gi');
-            sentenceElement.innerHTML = q.sentence.replace(re, `<mark>${tw}</mark>`);
+            let lastIndex = 0;
+            let match;
+            const sentence = q.sentence || '';
+            while ((match = re.exec(sentence)) !== null) {
+                // Add text before the match
+                if (match.index > lastIndex) {
+                    sentenceElement.appendChild(document.createTextNode(sentence.slice(lastIndex, match.index)));
+                }
+                // Add the highlighted word
+                const mark = document.createElement('mark');
+                mark.textContent = match[0];
+                sentenceElement.appendChild(mark);
+                lastIndex = re.lastIndex;
+            }
+            // Add any remaining text after the last match
+            if (lastIndex < sentence.length) {
+                sentenceElement.appendChild(document.createTextNode(sentence.slice(lastIndex)));
+            }
         } else {
             sentenceElement.textContent = q.sentence;
         }
