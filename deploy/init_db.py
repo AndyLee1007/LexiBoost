@@ -221,8 +221,6 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
                 continue
             yield line
 
-# (Remove lines 157–177 entirely; do not replace with anything.)
-
     # detect distractor table schema (new vs old)
     conn = get_db_connection()
     cur = conn.cursor()
