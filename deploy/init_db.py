@@ -119,6 +119,7 @@ def init_db():
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='word_distractors'")
     
     # fresh create (new schema)
+    cur.execute("DROP TABLE IF EXISTS word_distractors")
     cur.execute("""
     CREATE TABLE word_distractors (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
