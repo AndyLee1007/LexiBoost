@@ -51,16 +51,13 @@ def init_db():
         FOREIGN KEY (user_id) REFERENCES users (id)
     )""")
 
-    # words
+    # words - definitions are now real-time generated, not stored
     cur.execute("""
     CREATE TABLE IF NOT EXISTS words (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         word TEXT NOT NULL UNIQUE,
-        definition_en TEXT NOT NULL,
-        definition_zh TEXT,
-        register TEXT,
         category TEXT,
-        notes TEXT,
+        level TEXT DEFAULT 'k12',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
@@ -105,11 +102,10 @@ def init_db():
     conn.close()
 
 def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
-    """Import words from CSV into SQLite (simplified - only word definitions).
+    """Import words from CSV into SQLite (only word and metadata, definitions are real-time).
 
     CSV expected columns:
-      word, definition_en, definition_zh (optional), category (optional), 
-      register (optional), notes (optional)
+      word, category (optional), level (optional)
     """
     if not os.path.exists(csv_path):
         print(f"[WARN] CSV not found: {csv_path}")
@@ -131,7 +127,7 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
 
     with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(_line_iter(f))
-        need = {"word", "definition_en"}
+        need = {"word"}
         miss = need - set(reader.fieldnames or [])
         if miss:
             raise ValueError(f"CSV missing columns: {miss}; got {reader.fieldnames}")
@@ -141,32 +137,26 @@ def seed_from_csv(csv_path: str = INITIAL_CSV) -> None:
             if not word:
                 continue
 
-            definition_en = (row.get("definition_en") or "").strip()
-            definition_zh = (row.get("definition_zh") or "").strip()
-            register      = (row.get("register") or "").strip()
-            category      = (row.get("category") or "").strip()
-            notes         = (row.get("notes") or "").strip()
+            category = (row.get("category") or "").strip()
+            level = (row.get("level") or "k12").strip()
 
-            # upsert words (only basic word information)
+            # upsert words (only word and metadata)
             cur.execute("SELECT id FROM words WHERE word = ? LIMIT 1", (word,))
             row0 = cur.fetchone()
             if row0:
                 word_id = row0["id"]
                 cur.execute("""
                     UPDATE words
-                       SET definition_en = ?,
-                           definition_zh = ?,
-                           register      = ?,
-                           category      = ?,
-                           notes         = ?
+                       SET category = ?,
+                           level = ?
                      WHERE id = ?
-                """, (definition_en, definition_zh, register, category, notes, word_id))
+                """, (category, level, word_id))
                 updated += 1
             else:
                 cursor = cur.execute("""
-                    INSERT INTO words (word, definition_en, definition_zh, register, category, notes)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (word, definition_en, definition_zh, register, category, notes))
+                    INSERT INTO words (word, category, level)
+                    VALUES (?, ?, ?)
+                """, (word, category, level))
                 word_id = cursor.lastrowid
                 inserted += 1
 

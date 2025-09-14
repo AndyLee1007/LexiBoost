@@ -13,6 +13,7 @@ import io
 from datetime import datetime, timedelta
 import random
 import os
+from definition_service import definition_service
 
 app = Flask(__name__)
 CORS(app)
@@ -170,7 +171,7 @@ def start_session(user_id):
 
 @app.route('/api/sessions/<int:session_id>/question')
 def get_question(session_id):
-    """Get next question; returns i18n choices and hover flag, with strict word validation."""
+    """Get next question with real-time definitions and distractors from LLM."""
     conn = get_db_connection()
 
     # 1) validate session
@@ -189,80 +190,77 @@ def get_question(session_id):
         conn.close()
         return jsonify({'session_complete': True})
 
-    # 3) candidate words: due wrongbook first, then unseen
-    #    严格过滤：word 非空且 definition_en 非空
+    # 3) candidate words: due wrongbook first, then unseen (only need word and metadata)
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
         JOIN user_words uw ON w.id = uw.word_id 
         WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
           AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
-          AND TRIM(w.word) <> '' AND TRIM(IFNULL(w.definition_en,'')) <> ''
+          AND TRIM(w.word) <> ''
         ORDER BY uw.next_review ASC
         LIMIT 20
     ''', (user_id,)).fetchall()
 
     unseen_words = conn.execute('''
         SELECT w.* FROM words w
-        WHERE TRIM(w.word) <> '' AND TRIM(IFNULL(w.definition_en,'')) <> ''
+        WHERE TRIM(w.word) <> ''
           AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
         ORDER BY RANDOM()
         LIMIT 20
     ''', (user_id,)).fetchall()
 
-    # 4) 合并并在 Python 侧再做一次保险过滤
-    def _valid(row):
-        return bool((row['word'] or '').strip()) and bool((row['definition_en'] or '').strip())
-    candidates = [w for w in (list(wrongbook_words) + list(unseen_words)) if _valid(w)]
-
+    # 4) select target word
+    candidates = list(wrongbook_words) + list(unseen_words)
     if not candidates:
         conn.close()
-        return jsonify({'error': 'No valid words available. Please seed the DB or clean empty rows.'}), 400
+        return jsonify({'error': 'No valid words available. Please seed the DB.'}), 400
 
     target = random.choice(candidates)
     word_id = target['id']
     word_txt = (target['word'] or '').strip()
-    correct_en = (target['definition_en'] or '').strip()
-    correct_zh = (target['definition_zh'] or '').strip()
-
-    # 双重保险：若仍然无效，直接换一条
-    if not word_txt or not correct_en:
-        for cand in candidates:
-            if (cand['word'] or '').strip() and (cand['definition_en'] or '').strip():
-                target = cand
-                word_id = target['id']
-                word_txt = (target['word'] or '').strip()
-                correct_en = (target['definition_en'] or '').strip()
-                correct_zh = (target['definition_zh'] or '').strip()
-                break
-    if not word_txt or not correct_en:
+    level = (target['level'] or 'k12').strip() if 'level' in target.keys() else 'k12'
+    
+    if not word_txt:
         conn.close()
-        return jsonify({'error': 'No valid question can be formed for the selected word.'}), 400
+        return jsonify({'error': 'Invalid word selected.'}), 400
 
-    # 5) generate sentence dynamically
-    sentence = generate_sentence_with_word(word_txt)
+    # 5) get real-time explanation from LLM
+    try:
+        explanation = definition_service.get_word_explanation(word_txt, level)
+        correct_en = explanation['definition_en']
+        correct_zh = explanation['definition_zh']
+        distractors_en = explanation['distractors_en']
+        distractors_zh = explanation['distractors_zh']
+        examples = explanation.get('examples', [])
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Failed to generate explanation: {str(e)}'}), 500
 
-    # 6) generate distractors dynamically from other words' definitions
-    distractors_i18n = []
-    filler = conn.execute(
-        '''SELECT definition_en, definition_zh FROM words 
-           WHERE id != ? AND TRIM(IFNULL(definition_en,'')) <> '' AND definition_en <> ?
-           ORDER BY RANDOM() LIMIT 2''',
-        (word_id, correct_en)
-    ).fetchall()
-    for r in filler:
-        en = (r['definition_en'] or '').strip()
-        zh = (r['definition_zh'] or '').strip()
-        if en and en != correct_en:
-            distractors_i18n.append({'en': en, 'zh': zh})
+    # 6) generate sentence (use example if available, otherwise fallback)
+    if examples:
+        sentence = examples[0]['en']
+    else:
+        sentence = generate_sentence_with_word(word_txt)
 
-    # ensure at least 2 distractors
-    while len(distractors_i18n) < 2:
-        distractors_i18n.append({'en': 'a general concept or idea', 'zh': '一般概念或想法'})
-
-    # 7) build choices (i18n)
+    # 7) build choices (i18n) using real-time distractors
     correct_pair = {'en': correct_en, 'zh': correct_zh}
-    choices_i18n = [correct_pair] + distractors_i18n
+    choices_i18n = [correct_pair]
+    
+    # Add distractors from LLM (limit to 2 to make total 3 choices)
+    for i in range(min(2, len(distractors_en), len(distractors_zh))):
+        choices_i18n.append({
+            'en': distractors_en[i],
+            'zh': distractors_zh[i]
+        })
+    
+    # Ensure we have exactly 3 choices total
+    while len(choices_i18n) < 3:
+        choices_i18n.append({
+            'en': 'A general concept or idea',
+            'zh': '一般概念或想法'
+        })
+    
     random.shuffle(choices_i18n)
 
     hover_zh_enabled = _env_flag('LEXIBOOST_HOVER_ZH', default=False)
@@ -297,10 +295,21 @@ def submit_answer(session_id):
     session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
     user_id = session['user_id']
 
-    # fetch zh explanation for this word (for popup bilingual content)
-    w = conn.execute('SELECT definition_zh, definition_en FROM words WHERE id = ?', (word_id,)).fetchone()
-    explanation_en = (w['definition_en'] or correct_answer or "").strip() if w else (correct_answer or "")
-    explanation_zh = (w['definition_zh'] or "").strip() if w else ""
+    # fetch explanation for this word (real-time if needed)
+    w = conn.execute('SELECT word, level FROM words WHERE id = ?', (word_id,)).fetchone()
+    if w:
+        word_txt = w['word']
+        level = w['level'] or 'k12'
+        try:
+            explanation = definition_service.get_word_explanation(word_txt, level)
+            explanation_en = explanation['definition_en']
+            explanation_zh = explanation['definition_zh']
+        except Exception:
+            explanation_en = correct_answer or ""
+            explanation_zh = ""
+    else:
+        explanation_en = correct_answer or ""
+        explanation_zh = ""
 
     # record attempt
     conn.execute('''
@@ -404,7 +413,7 @@ def get_user_stats(user_id):
 
 @app.route('/api/users/<int:user_id>/wrongbook/import', methods=['POST'])
 def import_wrongbook(user_id):
-    """Import wrongbook words from CSV (columns: word, definition)."""
+    """Import wrongbook words from CSV (columns: word, definition - definition ignored, real-time generated)."""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     file = request.files['file']
@@ -421,13 +430,12 @@ def import_wrongbook(user_id):
         imported_count = 0
 
         for row in csv_reader:
-            if len(row) >= 2:
+            if len(row) >= 1:
                 word = (row[0] or '').strip()
-                definition = (row[1] or '').strip()
-                if not word or not definition:
+                if not word:
                     continue
 
-                # find or create word (definition_en)
+                # find or create word (only store word and metadata)
                 existing = conn.execute(
                     'SELECT id FROM words WHERE word = ?',
                     (word,)
@@ -436,8 +444,8 @@ def import_wrongbook(user_id):
                     word_id = existing['id']
                 else:
                     cursor = conn.execute(
-                        'INSERT INTO words (word, definition_en) VALUES (?, ?)',
-                        (word, definition)
+                        'INSERT INTO words (word) VALUES (?)',
+                        (word,)
                     )
                     word_id = cursor.lastrowid
 
