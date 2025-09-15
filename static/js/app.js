@@ -139,7 +139,7 @@ async function loadNextQuestion() {
     try {
         const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
         if (q.session_complete) {
-            await showSessionComplete();
+            await showSessionComplete(q);
             return;
         }
 
@@ -296,14 +296,41 @@ async function nextQuestion() {
     await loadNextQuestion();
 }
 
-async function showSessionComplete() {
+async function showSessionComplete(sessionData = {}) {
     // Calculate final stats
     const accuracy = questionNumber > 0 ? Math.round((sessionScore / questionNumber) * 100) : 0;
     
-    document.getElementById('final-questions').textContent = questionNumber;
-    document.getElementById('final-correct').textContent = sessionScore;
-    document.getElementById('final-score').textContent = sessionScore;
-    document.getElementById('final-accuracy').textContent = accuracy + '%';
+    // Update title and message based on completion reason
+    const titleEl = document.getElementById('complete-title');
+    const messageEl = document.getElementById('complete-message');
+    const statsContainer = document.getElementById('final-stats-container');
+    
+    if (sessionData.reason === 'no_words_in_db') {
+        titleEl.textContent = '📚 No Words Available';
+        messageEl.textContent = sessionData.message || 'No words available in the database. Please import vocabulary data.';
+        statsContainer.style.display = 'none';
+    } else if (sessionData.reason === 'all_words_completed') {
+        titleEl.textContent = '🎯 All Words Completed!';
+        messageEl.textContent = sessionData.message || 'Congratulations! You have completed all available words in this session.';
+        statsContainer.style.display = 'block';
+    } else if (sessionData.reason === 'no_words_due') {
+        titleEl.textContent = '✅ All Caught Up!';
+        messageEl.textContent = sessionData.message || 'No more words due for review at this time. Great job!';
+        statsContainer.style.display = 'block';
+    } else {
+        // Normal session completion (50 questions)
+        titleEl.textContent = '🎉 Session Complete!';
+        messageEl.textContent = `Great job! You completed ${questionNumber} questions.`;
+        statsContainer.style.display = 'block';
+    }
+    
+    // Update stats if they should be shown
+    if (statsContainer.style.display !== 'none') {
+        document.getElementById('final-questions').textContent = questionNumber;
+        document.getElementById('final-correct').textContent = sessionScore;
+        document.getElementById('final-score').textContent = sessionScore;
+        document.getElementById('final-accuracy').textContent = accuracy + '%';
+    }
 
     showScreen('complete-screen');
 }

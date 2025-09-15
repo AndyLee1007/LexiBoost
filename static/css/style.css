@@ -427,6 +427,18 @@ button:disabled {
     color: #721c24;
 }
 
+/* Complete message styles */
+.complete-message {
+    text-align: center;
+    font-size: 16px;
+    color: #666;
+    margin: 20px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid #007bff;
+}
+
 /* Responsive Design */
 @media (max-width: 600px) {
     .container {

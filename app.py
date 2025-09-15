@@ -190,7 +190,15 @@ def get_question(session_id):
         conn.close()
         return jsonify({'session_complete': True})
 
-    # 3) candidate words: due wrongbook first, then unseen (only need word and metadata)
+    # 3) Get words already asked in this session to avoid repetition
+    asked_word_ids = set()
+    asked_words = conn.execute('''
+        SELECT DISTINCT word_id FROM question_attempts 
+        WHERE session_id = ?
+    ''', (session_id,)).fetchall()
+    asked_word_ids = {row['word_id'] for row in asked_words}
+
+    # 4) candidate words: due wrongbook first, then unseen (exclude already asked)
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
@@ -199,22 +207,65 @@ def get_question(session_id):
           AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
           AND TRIM(w.word) <> ''
         ORDER BY uw.next_review ASC
-        LIMIT 20
+        LIMIT 50
     ''', (user_id,)).fetchall()
+    
+    # Filter out already asked words
+    wrongbook_words = [w for w in wrongbook_words if w['id'] not in asked_word_ids]
 
     unseen_words = conn.execute('''
         SELECT w.* FROM words w
         WHERE TRIM(w.word) <> ''
           AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
         ORDER BY RANDOM()
-        LIMIT 20
+        LIMIT 50
     ''', (user_id,)).fetchall()
+    
+    # Filter out already asked words
+    unseen_words = [w for w in unseen_words if w['id'] not in asked_word_ids]
 
-    # 4) select target word
+    # 5) select target word
     candidates = list(wrongbook_words) + list(unseen_words)
+    
+    # Check if we have any valid candidates
     if not candidates:
+        # Check if it's because all words have been exhausted in this session
+        total_wrongbook = conn.execute('''
+            SELECT COUNT(*) as count FROM user_words uw
+            JOIN words w ON w.id = uw.word_id
+            WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
+              AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
+              AND TRIM(w.word) <> ''
+        ''', (user_id,)).fetchone()['count']
+        
+        total_unseen = conn.execute('''
+            SELECT COUNT(*) as count FROM words w
+            WHERE TRIM(w.word) <> ''
+              AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
+        ''', (user_id,)).fetchone()['count']
+        
+        total_available = total_wrongbook + total_unseen
+        
         conn.close()
-        return jsonify({'error': 'No valid words available. Please seed the DB.'}), 400
+        
+        if total_available == 0:
+            return jsonify({
+                'session_complete': True,
+                'message': 'No words available in the database. Please import vocabulary data.',
+                'reason': 'no_words_in_db'
+            })
+        elif len(asked_word_ids) >= total_available:
+            return jsonify({
+                'session_complete': True,
+                'message': f'Congratulations! You have completed all {len(asked_word_ids)} available words in this session.',
+                'reason': 'all_words_completed'
+            })
+        else:
+            return jsonify({
+                'session_complete': True,
+                'message': 'No more words due for review at this time. Great job!',
+                'reason': 'no_words_due'
+            })
 
     target = random.choice(candidates)
     word_id = target['id']
