@@ -246,16 +246,16 @@ def get_question(session_id):
     # 7) build choices (i18n) using real-time distractors
     correct_pair = {'en': correct_en, 'zh': correct_zh}
     choices_i18n = [correct_pair]
-    
-    # Add distractors from LLM (limit to 2 to make total 3 choices)
-    for i in range(min(2, len(distractors_en), len(distractors_zh))):
+
+    # Add distractors from LLM (limit to 3 to make total 4 choices)
+    for i in range(min(3, len(distractors_en), len(distractors_zh))):
         choices_i18n.append({
             'en': distractors_en[i],
             'zh': distractors_zh[i]
         })
     
-    # Ensure we have exactly 3 choices total
-    while len(choices_i18n) < 3:
+    # Ensure we have exactly 4 choices total
+    while len(choices_i18n) < 4:
         choices_i18n.append({
             'en': 'A general concept or idea',
             'zh': '一般概念或想法'
