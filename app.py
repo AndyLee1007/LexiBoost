@@ -40,6 +40,13 @@ def _env_flag(name: str, default: bool = False) -> bool:
     v = os.getenv(name, "")
     return str(v).lower() in ("1", "true", "yes", "on") or (default and v == "")
 
+def get_max_questions_per_session() -> int:
+    """Get the maximum number of questions per session from environment variable"""
+    try:
+        return int(os.getenv('LEXIBOOST_MAX_QUESTIONS', '50'))
+    except (ValueError, TypeError):
+        return 50
+
 def calculate_next_review(current_interval_index, is_correct):
     """Calculate next review date based on SRS"""
     intervals = get_srs_intervals()
@@ -181,12 +188,13 @@ def get_question(session_id):
         return jsonify({'error': 'Session not found'}), 404
     user_id = session['user_id']
 
-    # 2) stop at 50 questions
+    # 2) stop at max questions per session
+    max_questions = get_max_questions_per_session()
     question_count = conn.execute(
         'SELECT COUNT(*) as count FROM question_attempts WHERE session_id = ?',
         (session_id,)
     ).fetchone()['count']
-    if question_count >= 50:
+    if question_count >= max_questions:
         conn.close()
         return jsonify({'session_complete': True})
 
@@ -524,6 +532,14 @@ def import_wrongbook(user_id):
 
     except Exception as e:
         return jsonify({'error': f'Error processing CSV: {str(e)}'}), 400
+
+@app.route('/api/config')
+def get_config():
+    """Get application configuration"""
+    return jsonify({
+        'max_questions_per_session': get_max_questions_per_session(),
+        'hover_zh_enabled': _env_flag('LEXIBOOST_HOVER_ZH', default=False)
+    })
 
 @app.route('/api/self-test')
 def self_test():

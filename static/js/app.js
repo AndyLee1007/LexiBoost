@@ -6,6 +6,10 @@ let currentQuestion = null;
 let questionNumber = 0;
 let sessionScore = 0;
 let selectedAnswer = null;
+let appConfig = {
+    max_questions_per_session: 50,
+    hover_zh_enabled: false
+};
 
 // Utility functions
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -96,10 +100,21 @@ async function loginUser() {
         }
 
         document.getElementById('user-name').textContent = currentUser.username;
+        await loadAppConfig();
         await loadUserStats();
         showScreen('dashboard-screen');
     } catch (error) {
         showError('Failed to login. Please try again.');
+    }
+}
+
+async function loadAppConfig() {
+    try {
+        const config = await apiRequest('/api/config');
+        appConfig = config;
+    } catch (error) {
+        console.error('Failed to load app config:', error);
+        // Use defaults if config fails to load
     }
 }
 
@@ -126,7 +141,7 @@ async function startQuizSession() {
         sessionScore = 0;
         
         document.getElementById('current-score').textContent = sessionScore;
-        updateProgressBar(0, 50);
+        updateProgressBar(0, appConfig.max_questions_per_session);
         
         showScreen('quiz-screen');
         await loadNextQuestion();
@@ -192,7 +207,7 @@ async function loadNextQuestion() {
             choiceElement.dataset.zh = c.zh || '';
 
             // float tooltip
-            if (q.hover_zh_enabled && c.zh) {
+            if (appConfig.hover_zh_enabled && c.zh) {
                 choiceElement.addEventListener('mouseenter', () => showTooltip(choiceElement, c.zh));
                 choiceElement.addEventListener('mouseleave', hideTooltip);
             }
@@ -205,7 +220,7 @@ async function loadNextQuestion() {
         document.getElementById('submit-answer').disabled = true;
 
         // progress bar: completed is questionNumber - 1
-        updateProgressBar(questionNumber - 1, 50);
+        updateProgressBar(questionNumber - 1, appConfig.max_questions_per_session);
     } catch (error) {
         showError('Failed to load question. Please try again.');
     }
@@ -318,7 +333,7 @@ async function showSessionComplete(sessionData = {}) {
         messageEl.textContent = sessionData.message || 'No more words due for review at this time. Great job!';
         statsContainer.style.display = 'block';
     } else {
-        // Normal session completion (50 questions)
+        // Normal session completion (max questions reached)
         titleEl.textContent = '🎉 Session Complete!';
         messageEl.textContent = `Great job! You completed ${questionNumber} questions.`;
         statsContainer.style.display = 'block';
