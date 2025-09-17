@@ -55,6 +55,19 @@ function updateProgressBar(current, total) {
     document.getElementById('progress-fill').style.width = percentage + '%';
 }
 
+function showQuestionLoading(isLoading) {
+    const loadingContainer = document.getElementById('question-loading');
+    const questionContent = document.getElementById('question-content');
+    
+    if (isLoading) {
+        loadingContainer.classList.remove('hidden');
+        questionContent.classList.add('hidden');
+    } else {
+        loadingContainer.classList.add('hidden');
+        questionContent.classList.remove('hidden');
+    }
+}
+
 // API functions
 async function apiRequest(url, options = {}) {
     try {
@@ -152,6 +165,9 @@ async function startQuizSession() {
 
 async function loadNextQuestion() {
     try {
+        // Show loading state
+        showQuestionLoading(true);
+        
         const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
         if (q.session_complete) {
             await showSessionComplete(q);
@@ -216,12 +232,18 @@ async function loadNextQuestion() {
             choicesContainer.appendChild(choiceElement);
         });
 
-        // submit button
-        document.getElementById('submit-answer').disabled = true;
+        // submit button - reset state and text
+        const submitButton = document.getElementById('submit-answer');
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submit Answer';
 
         // progress bar: completed is questionNumber - 1
         updateProgressBar(questionNumber - 1, appConfig.max_questions_per_session);
+        
+        // Hide loading state and show question content
+        showQuestionLoading(false);
     } catch (error) {
+        showQuestionLoading(false);
         showError('Failed to load question. Please try again.');
     }
 }
@@ -243,7 +265,14 @@ function selectChoice(choiceElement, answer) {
 async function submitAnswer() {
     if (!selectedAnswer) return;
 
+    const submitButton = document.getElementById('submit-answer');
+    const originalButtonText = submitButton.textContent;
+    
     try {
+        // Disable button and show loading
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submitting...';
+        
         const answerData = await apiRequest(`/api/sessions/${currentSession.session_id}/answer`, {
             method: 'POST',
             body: JSON.stringify({
@@ -262,6 +291,9 @@ async function submitAnswer() {
         showAnswerResult(answerData);
 
     } catch (error) {
+        // Restore button state
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
         showError('Failed to submit answer. Please try again.');
     }
 }
