@@ -13,7 +13,9 @@ import io
 from datetime import datetime, timedelta
 import random
 import os
+import atexit
 from definition_service import definition_service
+from question_preloader import question_preloader
 
 app = Flask(__name__)
 CORS(app)
@@ -161,7 +163,7 @@ def get_user(username):
 
 @app.route('/api/users/<int:user_id>/session/start', methods=['POST'])
 def start_session(user_id):
-    """Start a new quiz session"""
+    """Start a new quiz session with preloader"""
     conn = get_db_connection()
     
     # Create new session
@@ -174,11 +176,14 @@ def start_session(user_id):
     conn.commit()
     conn.close()
     
+    # Start question preloader for this session
+    question_preloader.start_session_preloader(session_id, user_id)
+    
     return jsonify({'session_id': session_id})
 
 @app.route('/api/sessions/<int:session_id>/question')
 def get_question(session_id):
-    """Get next question with real-time definitions and distractors from LLM."""
+    """Get next question from preloaded queue or fallback to real-time generation."""
     conn = get_db_connection()
 
     # 1) validate session
@@ -198,7 +203,24 @@ def get_question(session_id):
         conn.close()
         return jsonify({'session_complete': True})
 
-    # 3) Get words already asked in this session to avoid repetition
+    # 3) Try to get preloaded question first
+    preloaded_question = question_preloader.get_next_question(session_id)
+    if preloaded_question:
+        conn.close()
+        return jsonify({
+            'question_id': f"{session_id}_{preloaded_question.word_id}",
+            'word_id': preloaded_question.word_id,
+            'question_number': question_count + 1,
+            'target_word': preloaded_question.target_word,
+            'sentence': preloaded_question.sentence,
+            'choices_i18n': preloaded_question.choices_i18n,
+            'correct_answer_i18n': preloaded_question.correct_answer_i18n,
+            'question_text': f'What does "{preloaded_question.target_word}" mean?',
+            'source': 'preloaded'  # For debugging
+        })
+
+    # 4) Fallback to original real-time generation if queue is empty
+    # Get words already asked in this session to avoid repetition
     asked_word_ids = set()
     asked_words = conn.execute('''
         SELECT DISTINCT word_id FROM question_attempts 
@@ -206,7 +228,7 @@ def get_question(session_id):
     ''', (session_id,)).fetchall()
     asked_word_ids = {row['word_id'] for row in asked_words}
 
-    # 4) candidate words: due wrongbook first, then unseen (exclude already asked)
+    # Candidate words: due wrongbook first, then unseen (exclude already asked)
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
@@ -232,7 +254,7 @@ def get_question(session_id):
     # Filter out already asked words
     unseen_words = [w for w in unseen_words if w['id'] not in asked_word_ids]
 
-    # 5) select target word
+    # Select target word for fallback generation
     candidates = list(wrongbook_words) + list(unseen_words)
     
     # Check if we have any valid candidates
@@ -284,7 +306,7 @@ def get_question(session_id):
         conn.close()
         return jsonify({'error': 'Invalid word selected.'}), 400
 
-    # 5) get real-time explanation from LLM
+    # Get real-time explanation from LLM (fallback mode)
     try:
         explanation = definition_service.get_word_explanation(word_txt, level)
         correct_en = explanation['definition_en']
@@ -334,7 +356,8 @@ def get_question(session_id):
         'choices_i18n': choices_i18n,
         'correct_answer_i18n': correct_pair,
         'question_number': question_count + 1,
-        'hover_zh_enabled': hover_zh_enabled
+        'hover_zh_enabled': hover_zh_enabled,
+        'source': 'fallback'  # For debugging
     })
 
 @app.route('/api/sessions/<int:session_id>/answer', methods=['POST'])
@@ -354,21 +377,27 @@ def submit_answer(session_id):
     session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
     user_id = session['user_id']
 
-    # fetch explanation for this word (real-time if needed)
-    w = conn.execute('SELECT word, level FROM words WHERE id = ?', (word_id,)).fetchone()
-    if w:
-        word_txt = w['word']
-        level = w['level'] or 'k12'
-        try:
-            explanation = definition_service.get_word_explanation(word_txt, level)
-            explanation_en = explanation['definition_en']
-            explanation_zh = explanation['definition_zh']
-        except Exception:
+    # Try to get explanation from preloaded questions first
+    preloaded_explanation = question_preloader.get_explanation_for_word_id(word_id)
+    if preloaded_explanation:
+        explanation_en = preloaded_explanation['definition_en']
+        explanation_zh = preloaded_explanation['definition_zh']
+    else:
+        # Fallback to real-time generation if not in preload cache
+        w = conn.execute('SELECT word, level FROM words WHERE id = ?', (word_id,)).fetchone()
+        if w:
+            word_txt = w['word']
+            level = w['level'] or 'k12'
+            try:
+                explanation = definition_service.get_word_explanation(word_txt, level)
+                explanation_en = explanation['definition_en']
+                explanation_zh = explanation['definition_zh']
+            except Exception:
+                explanation_en = correct_answer or ""
+                explanation_zh = ""
+        else:
             explanation_en = correct_answer or ""
             explanation_zh = ""
-    else:
-        explanation_en = correct_answer or ""
-        explanation_zh = ""
 
     # record attempt
     conn.execute('''
@@ -583,7 +612,30 @@ def self_test():
         'tests': tests
     })
 
+@app.route('/api/sessions/<int:session_id>/stop', methods=['POST'])
+def stop_session(session_id):
+    """Stop session and cleanup preloader resources"""
+    question_preloader.stop_session_preloader(session_id)
+    return jsonify({'message': 'Session stopped successfully'})
+
+@app.route('/api/preloader/status/<int:session_id>')
+def get_preloader_status(session_id):
+    """Get preloader queue status for debugging"""
+    status = question_preloader.get_queue_status(session_id)
+    return jsonify(status)
+
+def cleanup_preloaders():
+    """Cleanup all preloader threads on app exit"""
+    for session_id in list(question_preloader.preload_threads.keys()):
+        question_preloader.stop_session_preloader(session_id)
+
+# Register cleanup function
+atexit.register(cleanup_preloaders)
+
 if __name__ == '__main__':
-    
-    # Run the application
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    try:
+        # Run the application
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")
+        cleanup_preloaders()

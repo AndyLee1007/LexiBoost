@@ -17,6 +17,7 @@ class DefinitionService:
     def get_word_explanation(self, word: str, level: Optional[str] = None) -> Dict:
         """
         Get real-time explanation for a word including definitions and distractors.
+        First checks preloader cache, then generates if needed.
         
         Returns:
         {
@@ -33,6 +34,15 @@ class DefinitionService:
         """
         if not level:
             level = self.default_level
+        
+        # First try to get from preloader cache
+        try:
+            from question_preloader import question_preloader
+            cached_explanation = question_preloader.get_cached_explanation(word, level)
+            if cached_explanation:
+                return cached_explanation
+        except Exception:
+            pass  # If preloader not available, continue with normal flow
             
         if self.mock_mode:
             return self._mock_explanation(word, level)
@@ -40,6 +50,14 @@ class DefinitionService:
         try:
             from data.explainer import explain_word
             explanation = explain_word(word, level=level) 
+            
+            # Cache the result for future reuse
+            try:
+                from question_preloader import question_preloader
+                question_preloader.cache_explanation(word, level, explanation)
+            except Exception:
+                pass  # If caching fails, continue
+                
             return explanation
         except Exception as e:
             # Fallback to mock if LLM fails
