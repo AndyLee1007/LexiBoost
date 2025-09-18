@@ -6,7 +6,30 @@ let currentQuestion = null;
 let questionNumber = 0;
 let sessionScore = 0;
 let selectedAnswer = null;
+let appConfig = {
+    max_questions_per_session: 50,
+    hover_zh_enabled: false
+};
 
+// Load configuration from backend and update appConfig
+async function loadAppConfig() {
+    try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+            const config = await response.json();
+            appConfig = {
+                max_questions_per_session: config.max_questions_per_session !== undefined ? config.max_questions_per_session : appConfig.max_questions_per_session,
+                hover_zh_enabled: config.hover_zh_enabled !== undefined ? config.hover_zh_enabled : appConfig.hover_zh_enabled
+            };
+        }
+    } catch (e) {
+        // If fetch fails, keep defaults
+        console.warn('Failed to load app config from backend, using defaults.', e);
+    }
+}
+
+// Immediately load config on app initialization
+loadAppConfig();
 // Utility functions
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -49,6 +72,21 @@ function showError(message) {
 function updateProgressBar(current, total) {
     const percentage = (current / total) * 100;
     document.getElementById('progress-fill').style.width = percentage + '%';
+    // Update total questions display
+    document.getElementById('total-questions').textContent = total;
+}
+
+function showQuestionLoading(isLoading) {
+    const loadingContainer = document.getElementById('question-loading');
+    const questionContent = document.getElementById('question-content');
+    
+    if (isLoading) {
+        loadingContainer.classList.remove('hidden');
+        questionContent.classList.add('hidden');
+    } else {
+        loadingContainer.classList.add('hidden');
+        questionContent.classList.remove('hidden');
+    }
 }
 
 // API functions
@@ -96,10 +134,21 @@ async function loginUser() {
         }
 
         document.getElementById('user-name').textContent = currentUser.username;
+        await loadAppConfig();
         await loadUserStats();
         showScreen('dashboard-screen');
     } catch (error) {
         showError('Failed to login. Please try again.');
+    }
+}
+
+async function loadAppConfig() {
+    try {
+        const config = await apiRequest('/api/config');
+        appConfig = config;
+    } catch (error) {
+        console.error('Failed to load app config:', error);
+        // Use defaults if config fails to load
     }
 }
 
@@ -126,7 +175,7 @@ async function startQuizSession() {
         sessionScore = 0;
         
         document.getElementById('current-score').textContent = sessionScore;
-        updateProgressBar(0, 50);
+        updateProgressBar(0, appConfig.max_questions_per_session);
         
         showScreen('quiz-screen');
         await loadNextQuestion();
@@ -137,9 +186,12 @@ async function startQuizSession() {
 
 async function loadNextQuestion() {
     try {
+        // Show loading state
+        showQuestionLoading(true);
+        
         const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
         if (q.session_complete) {
-            await showSessionComplete();
+            await showSessionComplete(q);
             return;
         }
 
@@ -192,7 +244,7 @@ async function loadNextQuestion() {
             choiceElement.dataset.zh = c.zh || '';
 
             // float tooltip
-            if (q.hover_zh_enabled && c.zh) {
+            if (appConfig.hover_zh_enabled && c.zh) {
                 choiceElement.addEventListener('mouseenter', () => showTooltip(choiceElement, c.zh));
                 choiceElement.addEventListener('mouseleave', hideTooltip);
             }
@@ -201,12 +253,18 @@ async function loadNextQuestion() {
             choicesContainer.appendChild(choiceElement);
         });
 
-        // submit button
-        document.getElementById('submit-answer').disabled = true;
+        // submit button - reset state and text
+        const submitButton = document.getElementById('submit-answer');
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submit Answer';
 
         // progress bar: completed is questionNumber - 1
-        updateProgressBar(questionNumber - 1, 50);
+        updateProgressBar(questionNumber - 1, appConfig.max_questions_per_session);
+        
+        // Hide loading state and show question content
+        showQuestionLoading(false);
     } catch (error) {
+        showQuestionLoading(false);
         showError('Failed to load question. Please try again.');
     }
 }
@@ -228,7 +286,14 @@ function selectChoice(choiceElement, answer) {
 async function submitAnswer() {
     if (!selectedAnswer) return;
 
+    const submitButton = document.getElementById('submit-answer');
+    const originalButtonText = submitButton.textContent;
+    
     try {
+        // Disable button and show loading
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submitting...';
+        
         const answerData = await apiRequest(`/api/sessions/${currentSession.session_id}/answer`, {
             method: 'POST',
             body: JSON.stringify({
@@ -247,6 +312,9 @@ async function submitAnswer() {
         showAnswerResult(answerData);
 
     } catch (error) {
+        // Restore button state
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
         showError('Failed to submit answer. Please try again.');
     }
 }
@@ -296,14 +364,41 @@ async function nextQuestion() {
     await loadNextQuestion();
 }
 
-async function showSessionComplete() {
+async function showSessionComplete(sessionData = {}) {
     // Calculate final stats
     const accuracy = questionNumber > 0 ? Math.round((sessionScore / questionNumber) * 100) : 0;
     
-    document.getElementById('final-questions').textContent = questionNumber;
-    document.getElementById('final-correct').textContent = sessionScore;
-    document.getElementById('final-score').textContent = sessionScore;
-    document.getElementById('final-accuracy').textContent = accuracy + '%';
+    // Update title and message based on completion reason
+    const titleEl = document.getElementById('complete-title');
+    const messageEl = document.getElementById('complete-message');
+    const statsContainer = document.getElementById('final-stats-container');
+    
+    if (sessionData.reason === 'no_words_in_db') {
+        titleEl.textContent = '📚 No Words Available';
+        messageEl.textContent = sessionData.message || 'No words available in the database. Please import vocabulary data.';
+        statsContainer.style.display = 'none';
+    } else if (sessionData.reason === 'all_words_completed') {
+        titleEl.textContent = '🎯 All Words Completed!';
+        messageEl.textContent = sessionData.message || 'Congratulations! You have completed all available words in this session.';
+        statsContainer.style.display = 'block';
+    } else if (sessionData.reason === 'no_words_due') {
+        titleEl.textContent = '✅ All Caught Up!';
+        messageEl.textContent = sessionData.message || 'No more words due for review at this time. Great job!';
+        statsContainer.style.display = 'block';
+    } else {
+        // Normal session completion (max questions reached)
+        titleEl.textContent = '🎉 Session Complete!';
+        messageEl.textContent = `Great job! You completed ${questionNumber} questions.`;
+        statsContainer.style.display = 'block';
+    }
+    
+    // Update stats if they should be shown
+    if (statsContainer.style.display !== 'none') {
+        document.getElementById('final-questions').textContent = questionNumber;
+        document.getElementById('final-correct').textContent = sessionScore;
+        document.getElementById('final-score').textContent = sessionScore;
+        document.getElementById('final-accuracy').textContent = accuracy + '%';
+    }
 
     showScreen('complete-screen');
 }
