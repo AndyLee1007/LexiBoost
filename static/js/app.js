@@ -11,6 +11,25 @@ let appConfig = {
     hover_zh_enabled: false
 };
 
+// Load configuration from backend and update appConfig
+async function loadAppConfig() {
+    try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+            const config = await response.json();
+            appConfig = {
+                max_questions_per_session: config.max_questions_per_session !== undefined ? config.max_questions_per_session : appConfig.max_questions_per_session,
+                hover_zh_enabled: config.hover_zh_enabled !== undefined ? config.hover_zh_enabled : appConfig.hover_zh_enabled
+            };
+        }
+    } catch (e) {
+        // If fetch fails, keep defaults
+        console.warn('Failed to load app config from backend, using defaults.', e);
+    }
+}
+
+// Immediately load config on app initialization
+loadAppConfig();
 // Utility functions
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
