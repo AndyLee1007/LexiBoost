@@ -53,6 +53,8 @@ function showError(message) {
 function updateProgressBar(current, total) {
     const percentage = (current / total) * 100;
     document.getElementById('progress-fill').style.width = percentage + '%';
+    // Update total questions display
+    document.getElementById('total-questions').textContent = total;
 }
 
 function showQuestionLoading(isLoading) {
