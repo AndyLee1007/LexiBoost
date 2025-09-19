@@ -333,6 +333,10 @@ function showAnswerResult(answerData) {
 
     // Show result
     document.getElementById('result-title').textContent = answerData.is_correct ? '✅ Correct!' : '❌ Incorrect';
+    
+    // Display the target word
+    document.getElementById('result-target-word').textContent = currentQuestion.target_word || '';
+    
     document.getElementById('result-message').textContent = answerData.is_correct 
         ? 'Well done! You got it right.' 
         : 'Don\'t worry, keep learning!';
@@ -355,6 +359,41 @@ function showAnswerResult(answerData) {
     zhDiv.appendChild(zhStrong);
     zhDiv.appendChild(document.createTextNode(' ' + (expZh || '（无）')));
     expEl.appendChild(zhDiv);
+
+    // Handle next question behavior based on answer correctness
+    const nextButton = document.getElementById('next-question-btn');
+    const autoProgressMsg = document.getElementById('auto-progress-message');
+    
+    if (answerData.is_correct) {
+        // For correct answers: hide button and auto-advance after 3 seconds
+        nextButton.style.display = 'none';
+        if (autoProgressMsg) {
+            autoProgressMsg.style.display = 'block';
+            let countdown = 3;
+            autoProgressMsg.textContent = `Next question in ${countdown} seconds...`;
+            
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    autoProgressMsg.textContent = `Next question in ${countdown} seconds...`;
+                } else {
+                    clearInterval(countdownInterval);
+                    nextQuestion();
+                }
+            }, 1000);
+        } else {
+            // Fallback if element doesn't exist
+            setTimeout(() => {
+                nextQuestion();
+            }, 3000);
+        }
+    } else {
+        // For incorrect answers: show button and require manual click
+        nextButton.style.display = 'block';
+        if (autoProgressMsg) {
+            autoProgressMsg.style.display = 'none';
+        }
+    }
 
     showScreen('result-screen');
 }

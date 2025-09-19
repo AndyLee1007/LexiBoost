@@ -93,9 +93,13 @@
         <div id="result-screen" class="screen hidden">
             <div class="result-content">
                 <h2 id="result-title"></h2>
+                <div class="target-word-display">
+                    <strong>Target Word:</strong> <span id="result-target-word" class="target-word-highlight"></span>
+                </div>
                 <div id="result-message" class="result-message"></div>
                 <div id="explanation" class="explanation"></div>
-                <button onclick="nextQuestion()" class="primary-btn">Next Question</button>
+                <div id="auto-progress-message" class="auto-progress-message" style="display: none;"></div>
+                <button id="next-question-btn" onclick="nextQuestion()" class="primary-btn">Next Question</button>
             </div>
         </div>
 

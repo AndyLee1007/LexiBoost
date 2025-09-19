@@ -335,6 +335,21 @@ button:disabled {
     text-align: center;
 }
 
+.target-word-display {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 20px 0;
+    border-left: 4px solid #007bff;
+}
+
+.target-word-highlight {
+    color: #007bff;
+    font-weight: bold;
+    font-size: 20px;
+    text-decoration: underline;
+}
+
 .result-message {
     font-size: 18px;
     margin: 20px 0;
@@ -360,6 +375,23 @@ button:disabled {
     border-radius: 10px;
     margin: 20px 0;
     font-style: italic;
+}
+
+.auto-progress-message {
+    background: #d1ecf1;
+    color: #0c5460;
+    padding: 12px;
+    border-radius: 8px;
+    margin: 15px 0;
+    font-weight: 500;
+    border: 1px solid #bee5eb;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
 }
 
 /* Complete Screen */
