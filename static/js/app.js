@@ -202,6 +202,10 @@ async function loadNextQuestion() {
         // basic information
         document.getElementById('question-number').textContent = questionNumber;
         document.getElementById('target-word').textContent = q.target_word;
+        
+        // Prefer concise target_word_zh returned by the API (word-level Chinese mapping). Fall back to definition_zh or choice zh.
+        const targetWordZh = q.target_word_zh || q.definition_zh || (currentQuestion.correct_answer_i18n && currentQuestion.correct_answer_i18n.zh) || q.target_word;
+        document.getElementById('target-word-zh').textContent = targetWordZh;
 
         // sentence highlighting (to prevent special characters from breaking regex)
         const sentenceElement = document.getElementById('sentence-text');
@@ -239,12 +243,23 @@ async function loadNextQuestion() {
         (q.choices_i18n || []).forEach((c, idx) => {
             const choiceElement = document.createElement('div');
             choiceElement.className = 'choice';
-            choiceElement.textContent = c.en || ''; // default to English
             choiceElement.dataset.en = c.en || '';
             choiceElement.dataset.zh = c.zh || '';
 
-            // float tooltip
-            if (appConfig.hover_zh_enabled && c.zh) {
+            // Create bilingual content
+            const enDiv = document.createElement('div');
+            enDiv.className = 'choice-en';
+            enDiv.textContent = c.en || '';
+            
+            const zhDiv = document.createElement('div');
+            zhDiv.className = 'choice-zh';
+            zhDiv.textContent = c.zh || '';
+            
+            choiceElement.appendChild(enDiv);
+            choiceElement.appendChild(zhDiv);
+
+            // Restore hover functionality (only if enabled in config)
+            if (appConfig && appConfig.hover_zh_enabled && c.zh) {
                 choiceElement.addEventListener('mouseenter', () => showTooltip(choiceElement, c.zh));
                 choiceElement.addEventListener('mouseleave', hideTooltip);
             }
@@ -322,47 +337,51 @@ async function submitAnswer() {
 function showAnswerResult(answerData) {
     const correctEn = (currentQuestion.correct_answer_i18n && currentQuestion.correct_answer_i18n.en) || '';
 
-    // Highlight choices
-    document.querySelectorAll('.choice').forEach(choice => {
-        if (choice.textContent === correctEn) {
-            choice.classList.add('correct');
-        } else if (choice.textContent === selectedAnswer && !answerData.is_correct) {
-            choice.classList.add('incorrect');
-        }
+    // Show Chinese translations after answer submission
+    document.getElementById('question-zh').style.display = 'block';
+    document.querySelectorAll('.choice-zh').forEach(zhElement => {
+        zhElement.style.display = 'block';
     });
 
-    // Show result
-    document.getElementById('result-title').textContent = answerData.is_correct ? '✅ Correct!' : '❌ Incorrect';
-    
-    // Display the target word
-    document.getElementById('result-target-word').textContent = currentQuestion.target_word || '';
-    
-    document.getElementById('result-message').textContent = answerData.is_correct 
-        ? 'Well done! You got it right.' 
-        : 'Don\'t worry, keep learning!';
-    document.getElementById('result-message').className = `result-message ${answerData.is_correct ? 'correct' : 'incorrect'}`;
+    // Disable submit button and all choices
+    document.getElementById('submit-answer').style.display = 'none';
+    document.querySelectorAll('.choice').forEach(choice => {
+        choice.style.pointerEvents = 'none';
+        choice.style.cursor = 'default';
+    });
 
-    // explanation (if any) - bilingual display
-    const expEn = answerData.explanation_en || '';
-    const expZh = answerData.explanation_zh || '';
+    // Highlight choices and mark user selection
+    document.querySelectorAll('.choice').forEach(choice => {
+        const choiceEn = choice.dataset.en;
+        
+        // Mark correct answer
+        if (choiceEn === correctEn) {
+            choice.classList.add('correct');
+        }
+        
+        // Mark user's selection
+        if (choiceEn === selectedAnswer) {
+            choice.classList.add('user-selected');
+            if (!answerData.is_correct) {
+                choice.classList.add('incorrect');
+            }
+        }
+        
+        // Remove the selected class as it's now replaced by result classes
+        choice.classList.remove('selected');
+    });
+
+    // Hide explanation section since translations are already shown in choices
     const expEl = document.getElementById('explanation');
-    expEl.innerHTML = '';
-    const enDiv = document.createElement('div');
-    const enStrong = document.createElement('strong');
-    enStrong.textContent = 'Correct answer (EN):';
-    enDiv.appendChild(enStrong);
-    enDiv.appendChild(document.createTextNode(' ' + expEn));
-    expEl.appendChild(enDiv);
-    const zhDiv = document.createElement('div');
-    const zhStrong = document.createElement('strong');
-    zhStrong.textContent = '正确释义（ZH）：';
-    zhDiv.appendChild(zhStrong);
-    zhDiv.appendChild(document.createTextNode(' ' + (expZh || '（无）')));
-    expEl.appendChild(zhDiv);
+    expEl.style.display = 'none';
 
     // Handle next question behavior based on answer correctness
     const nextButton = document.getElementById('next-question-btn');
     const autoProgressMsg = document.getElementById('auto-progress-message');
+    const resultDisplay = document.getElementById('result-display');
+    
+    // Show result display area
+    resultDisplay.classList.remove('hidden');
     
     if (answerData.is_correct) {
         // For correct answers: hide button and auto-advance after 3 seconds
@@ -395,11 +414,38 @@ function showAnswerResult(answerData) {
         }
     }
 
-    showScreen('result-screen');
+    // Stay on the same screen - no screen switching
 }
 
 async function nextQuestion() {
-    showScreen('quiz-screen');
+    // Reset the quiz screen state
+    const resultDisplay = document.getElementById('result-display');
+    const submitButton = document.getElementById('submit-answer');
+    
+    // Hide result display
+    resultDisplay.classList.add('hidden');
+    
+    // Hide Chinese translations for new question
+    document.getElementById('question-zh').style.display = 'none';
+    document.querySelectorAll('.choice-zh').forEach(zhElement => {
+        zhElement.style.display = 'none';
+    });
+    
+    // Show submit button
+    submitButton.style.display = 'block';
+    submitButton.disabled = true;
+    
+    // Reset all choices
+    document.querySelectorAll('.choice').forEach(choice => {
+        choice.classList.remove('correct', 'incorrect', 'user-selected', 'selected');
+        choice.style.pointerEvents = 'auto';
+        choice.style.cursor = 'pointer';
+    });
+    
+    // Clear selected answer
+    selectedAnswer = null;
+    
+    // Load next question
     await loadNextQuestion();
 }
 

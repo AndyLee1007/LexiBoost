@@ -76,6 +76,7 @@ class ExampleItem(BaseModel):
 
 class WordExplanation(BaseModel):
     word: str
+    word_zh: str = Field(..., description="Simple Chinese translation of the word (e.g., 'foggy' -> '有雾', not a full definition).")
     pos: List[str] = Field(..., description="Part-of-speech tags like ['n','v','adj'].")
     definition_en: str = Field(..., description="Concise, plain-English definition for general readers.")
     definition_zh: str = Field(..., description="Natural Chinese explanation matching the English definition.")
@@ -105,6 +106,7 @@ Task:
 For the English word: {word!r}
 Produce STRICT JSON with keys:
 - word
+- word_zh (simple Chinese translation, like 'foggy' -> '有雾', not a full definition)
 - pos (array)
 - definition_en (the correct meaning, level-aware: {level})
 - definition_zh
@@ -115,6 +117,7 @@ Produce STRICT JSON with keys:
 - distractors_zh (the natural Chinese translations of the 3 distractors above, aligned with distractors_en)
 
 Requirements:
+- "word_zh" must be a simple, concise Chinese equivalent (1-3 characters/words), NOT a full definition.
 - "definition_en" must reflect the intended sense and difficulty of {level}, expressed clearly in ~8-12 words.
 - "definition_zh" must be a natural and accurate translation of definition_en.
 - Each item in "distractors_en" must:

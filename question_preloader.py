@@ -30,6 +30,7 @@ class PreloadedQuestion:
     choices_i18n: List[Dict]
     correct_answer_i18n: Dict
     target_word: str
+    target_word_zh: str  # Simple Chinese translation for the target word in context
     explanation_en: str
     explanation_zh: str
     created_at: float
@@ -273,6 +274,7 @@ class QuestionPreloader:
                 choices_i18n=choices_i18n,
                 correct_answer_i18n=correct_pair,
                 target_word=word_txt,
+                target_word_zh=explanation.get('word_zh', correct_zh),
                 explanation_en=correct_en,
                 explanation_zh=correct_zh,
                 created_at=time.time()

@@ -78,7 +78,8 @@
                 </div>
                 
                 <div class="question-prompt">
-                    What does "<span id="target-word"></span>" mean?
+                    <div class="question-en">What does "<span id="target-word"></span>" mean?</div>
+                    <div class="question-zh" id="question-zh">"<span id="target-word-zh"></span>"的意思是什么？</div>
                 </div>
 
                 <div class="choices" id="answer-choices">
@@ -86,22 +87,16 @@
                 </div>
 
                 <button id="submit-answer" onclick="submitAnswer()" disabled>Submit Answer</button>
+                
+                <!-- Result display area (initially hidden) -->
+                <div id="result-display" class="result-display hidden">
+                    <div id="explanation" class="explanation"></div>
+                    <div id="auto-progress-message" class="auto-progress-message" style="display: none;"></div>
+                    <button id="next-question-btn" onclick="nextQuestion()" class="primary-btn">Next Question</button>
+                </div>
             </div>
         </div>
 
-        <!-- Result Screen -->
-        <div id="result-screen" class="screen hidden">
-            <div class="result-content">
-                <h2 id="result-title"></h2>
-                <div class="target-word-display">
-                    <strong>Target Word:</strong> <span id="result-target-word" class="target-word-highlight"></span>
-                </div>
-                <div id="result-message" class="result-message"></div>
-                <div id="explanation" class="explanation"></div>
-                <div id="auto-progress-message" class="auto-progress-message" style="display: none;"></div>
-                <button id="next-question-btn" onclick="nextQuestion()" class="primary-btn">Next Question</button>
-            </div>
-        </div>
 
         <!-- Session Complete Screen -->
         <div id="complete-screen" class="screen hidden">
