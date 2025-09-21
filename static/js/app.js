@@ -18,8 +18,8 @@ async function loadAppConfig() {
         if (response.ok) {
             const config = await response.json();
             appConfig = {
-                max_questions_per_session: config.max_questions_per_session !== undefined ? config.max_questions_per_session : appConfig.max_questions_per_session,
-                hover_zh_enabled: config.hover_zh_enabled !== undefined ? config.hover_zh_enabled : appConfig.hover_zh_enabled
+                max_questions_per_session: config.max_questions_per_session ?? appConfig.max_questions_per_session,
+                hover_zh_enabled: config.hover_zh_enabled ?? appConfig.hover_zh_enabled
             };
         }
     } catch (e) {
