@@ -5,7 +5,7 @@ Uses the explainer module to generate definitions and distractors in real-time
 """
 
 import os
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 class DefinitionService:
     """Service for generating real-time definitions and distractors"""
@@ -59,7 +59,7 @@ class DefinitionService:
                 pass  # If caching fails, continue
                 
             return explanation
-        except Exception as e:
+        except Exception:
             # Fallback to mock if LLM fails
             return self._mock_explanation(word, level)
     
@@ -69,33 +69,40 @@ class DefinitionService:
         definitions = {
             'apple': {
                 'en': 'A round red or green fruit that grows on trees',
-                'zh': '一种生长在树上的红色或绿色圆形水果'
+                'zh': '一种生长在树上的红色或绿色圆形水果',
+                'word_zh': '苹果'
             },
             'book': {
                 'en': 'A written work with pages that you can read',
-                'zh': '有页面可以阅读的书面作品'
+                'zh': '有页面可以阅读的书面作品',
+                'word_zh': '书'
             },
             'happy': {
                 'en': 'Feeling pleased, joyful, or content',
-                'zh': '感到高兴、快乐或满足'
+                'zh': '感到高兴、快乐或满足',
+                'word_zh': '快乐'
             },
             'run': {
                 'en': 'To move quickly on foot',
-                'zh': '用脚快速移动'
+                'zh': '用脚快速移动',
+                'word_zh': '跑'
             },
             'house': {
                 'en': 'A building where people live',
-                'zh': '人们居住的建筑物'
+                'zh': '人们居住的建筑物',
+                'word_zh': '房子'
             }
         }
         
         definition = definitions.get(word, {
             'en': f'A word related to {word}',
-            'zh': f'与{word}相关的词'
+            'zh': f'与{word}相关的词',
+            'word_zh': word[:2] if len(word) > 2 else word  # Simple fallback
         })
         
         return {
             'word': word,
+            'word_zh': definition['word_zh'],
             'pos': ['noun'] if word in ['apple', 'book', 'house'] else ['adjective'] if word == 'happy' else ['verb'],
             'definition_en': definition['en'],
             'definition_zh': definition['zh'],
@@ -120,6 +127,7 @@ class DefinitionService:
         """Fallback explanation when LLM service is unavailable"""
         return {
             'word': word,
+            'word_zh': word[:2] if len(word) > 2 else word,  # Simple fallback
             'pos': ['unknown'],
             'definition_en': f'A word meaning related to {word}',
             'definition_zh': f'与{word}相关的词',

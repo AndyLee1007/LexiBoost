@@ -7,7 +7,6 @@ Main Flask application entry point
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import sqlite3
-import json
 import csv
 import io
 from datetime import datetime, timedelta
