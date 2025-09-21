@@ -384,33 +384,39 @@ function showAnswerResult(answerData) {
     resultDisplay.classList.remove('hidden');
     
     if (answerData.is_correct) {
-        // For correct answers: hide button and auto-advance after 3 seconds
-        nextButton.style.display = 'none';
+        // For correct answers: show button immediately, no countdown
+        nextButton.style.display = 'block';
+        nextButton.disabled = false;
+        if (autoProgressMsg) {
+            autoProgressMsg.style.display = 'none';
+        }
+    } else {
+        // For incorrect answers: show disabled button with 3s countdown before enabling
+        nextButton.style.display = 'block';
+        nextButton.disabled = true;
+        
         if (autoProgressMsg) {
             autoProgressMsg.style.display = 'block';
             let countdown = 3;
-            autoProgressMsg.textContent = `Next question in ${countdown} seconds...`;
+            autoProgressMsg.textContent = `Next question available in ${countdown} seconds...`;
             
             const countdownInterval = setInterval(() => {
                 countdown--;
                 if (countdown > 0) {
-                    autoProgressMsg.textContent = `Next question in ${countdown} seconds...`;
+                    autoProgressMsg.textContent = `Next question available in ${countdown} seconds...`;
                 } else {
                     clearInterval(countdownInterval);
-                    nextQuestion();
+                    nextButton.disabled = false;
+                    if (autoProgressMsg) {
+                        autoProgressMsg.style.display = 'none';
+                    }
                 }
             }, 1000);
         } else {
             // Fallback if element doesn't exist
             setTimeout(() => {
-                nextQuestion();
+                nextButton.disabled = false;
             }, 3000);
-        }
-    } else {
-        // For incorrect answers: show button and require manual click
-        nextButton.style.display = 'block';
-        if (autoProgressMsg) {
-            autoProgressMsg.style.display = 'none';
         }
     }
 
@@ -424,6 +430,14 @@ async function nextQuestion() {
     
     // Hide result display
     resultDisplay.classList.add('hidden');
+    
+    // Reset next button state
+    const nextButton = document.getElementById('next-question-btn');
+    const autoProgressMsg = document.getElementById('auto-progress-message');
+    nextButton.disabled = false;
+    if (autoProgressMsg) {
+        autoProgressMsg.style.display = 'none';
+    }
     
     // Hide Chinese translations for new question
     document.getElementById('question-zh').style.display = 'none';

@@ -86,13 +86,17 @@
                     <!-- Choices will be populated dynamically -->
                 </div>
 
-                <button id="submit-answer" onclick="submitAnswer()" disabled>Submit Answer</button>
+                <div class="submit-button-container">
+                    <button id="submit-answer" onclick="submitAnswer()" class="primary-btn" disabled>Submit Answer</button>
+                </div>
                 
                 <!-- Result display area (initially hidden) -->
                 <div id="result-display" class="result-display hidden">
                     <div id="explanation" class="explanation"></div>
                     <div id="auto-progress-message" class="auto-progress-message" style="display: none;"></div>
-                    <button id="next-question-btn" onclick="nextQuestion()" class="primary-btn">Next Question</button>
+                    <div class="next-button-container">
+                        <button id="next-question-btn" onclick="nextQuestion()" class="primary-btn">Next Question</button>
+                    </div>
                 </div>
             </div>
         </div>

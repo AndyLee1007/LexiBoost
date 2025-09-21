@@ -453,17 +453,31 @@ button:disabled {
     margin-top: 25px;
     padding-top: 20px;
     border-top: 2px solid #e9ecef;
+    position: relative;
+}
+
+.next-button-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+.submit-button-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 20px;
 }
 
 .auto-progress-message {
-    background: #d1ecf1;
-    color: #0c5460;
+    background: #fff3cd;
+    color: #856404;
     padding: 12px;
     border-radius: 8px;
     margin: 15px 0;
     font-weight: 500;
-    border: 1px solid #bee5eb;
+    border: 1px solid #ffeaa7;
     animation: pulse 1s infinite;
+    text-align: center;
 }
 
 @keyframes pulse {
