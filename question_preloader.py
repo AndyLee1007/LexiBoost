@@ -53,8 +53,9 @@ class QuestionPreloader:
         self.queue_size = int(os.getenv("LEXIBOOST_PRELOAD_QUEUE_SIZE", "5"))
         self.preload_ahead = int(os.getenv("LEXIBOOST_PRELOAD_AHEAD", "3"))
         self.question_ttl = int(os.getenv("LEXIBOOST_QUESTION_TTL", "300"))  # seconds
+        self.thread_join_timeout = float(os.getenv("LEXIBOOST_THREAD_JOIN_TIMEOUT", "5.0"))  # seconds
         
-        logger.info(f"QuestionPreloader initialized: queue_size={self.queue_size}, preload_ahead={self.preload_ahead}")
+        logger.info(f"QuestionPreloader initialized: queue_size={self.queue_size}, preload_ahead={self.preload_ahead}, thread_join_timeout={self.thread_join_timeout}s")
     
     def start_session_preloader(self, session_id: int, user_id: int) -> None:
         """Start preloader thread for a session"""
@@ -91,7 +92,7 @@ class QuestionPreloader:
         # Wait for thread to finish
         thread = self.preload_threads.get(session_id)
         if thread and thread.is_alive():
-            thread.join(timeout=5.0)
+            thread.join(timeout=self.thread_join_timeout)
         
         # Cleanup resources
         self.question_queues.pop(session_id, None)
