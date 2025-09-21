@@ -142,15 +142,7 @@ async function loginUser() {
     }
 }
 
-async function loadAppConfig() {
-    try {
-        const config = await apiRequest('/api/config');
-        appConfig = config;
-    } catch (error) {
-        console.error('Failed to load app config:', error);
-        // Use defaults if config fails to load
-    }
-}
+// (Removed duplicate loadAppConfig function. The implementation at lines 15-29 is used.)
 
 async function loadUserStats() {
     try {
