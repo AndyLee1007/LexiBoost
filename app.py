@@ -7,13 +7,15 @@ Main Flask application entry point
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import sqlite3
-import json
 import csv
 import io
 from datetime import datetime, timedelta
 import random
 import os
+import atexit
+import signal
 from definition_service import definition_service
+from question_preloader import question_preloader
 
 app = Flask(__name__)
 CORS(app)
@@ -39,6 +41,13 @@ def get_srs_intervals():
 def _env_flag(name: str, default: bool = False) -> bool:
     v = os.getenv(name, "")
     return str(v).lower() in ("1", "true", "yes", "on") or (default and v == "")
+
+def get_max_questions_per_session() -> int:
+    """Get the maximum number of questions per session from environment variable"""
+    try:
+        return int(os.getenv('LEXIBOOST_MAX_QUESTIONS', '50'))
+    except (ValueError, TypeError):
+        return 50
 
 def calculate_next_review(current_interval_index, is_correct):
     """Calculate next review date based on SRS"""
@@ -154,7 +163,7 @@ def get_user(username):
 
 @app.route('/api/users/<int:user_id>/session/start', methods=['POST'])
 def start_session(user_id):
-    """Start a new quiz session"""
+    """Start a new quiz session with preloader"""
     conn = get_db_connection()
     
     # Create new session
@@ -167,11 +176,14 @@ def start_session(user_id):
     conn.commit()
     conn.close()
     
+    # Start question preloader for this session
+    question_preloader.start_session_preloader(session_id, user_id)
+    
     return jsonify({'session_id': session_id})
 
 @app.route('/api/sessions/<int:session_id>/question')
 def get_question(session_id):
-    """Get next question with real-time definitions and distractors from LLM."""
+    """Get next question from preloaded queue or fallback to real-time generation."""
     conn = get_db_connection()
 
     # 1) validate session
@@ -181,16 +193,43 @@ def get_question(session_id):
         return jsonify({'error': 'Session not found'}), 404
     user_id = session['user_id']
 
-    # 2) stop at 50 questions
+    # 2) stop at max questions per session
+    max_questions_per_session = get_max_questions_per_session()
     question_count = conn.execute(
         'SELECT COUNT(*) as count FROM question_attempts WHERE session_id = ?',
         (session_id,)
     ).fetchone()['count']
-    if question_count >= 50:
+    if question_count >= max_questions_per_session:
         conn.close()
         return jsonify({'session_complete': True})
 
-    # 3) candidate words: due wrongbook first, then unseen (only need word and metadata)
+    # 3) Try to get preloaded question first
+    preloaded_question = question_preloader.get_next_question(session_id)
+    if preloaded_question:
+        conn.close()
+        return jsonify({
+            'question_id': f"{session_id}_{preloaded_question.word_id}",
+            'word_id': preloaded_question.word_id,
+            'question_number': question_count + 1,
+            'target_word': preloaded_question.target_word,
+            'target_word_zh': preloaded_question.target_word_zh,
+            'sentence': preloaded_question.sentence,
+            'choices_i18n': preloaded_question.choices_i18n,
+            'correct_answer_i18n': preloaded_question.correct_answer_i18n,
+            'question_text': f'What does "{preloaded_question.target_word}" mean?',
+            'source': 'preloaded'  # For debugging
+        })
+
+    # 4) Fallback to original real-time generation if queue is empty
+    # Get words already asked in this session to avoid repetition
+    asked_word_ids = set()
+    asked_words = conn.execute('''
+        SELECT DISTINCT word_id FROM question_attempts 
+        WHERE session_id = ?
+    ''', (session_id,)).fetchall()
+    asked_word_ids = {row['word_id'] for row in asked_words}
+
+    # Candidate words: due wrongbook first, then unseen (exclude already asked)
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
@@ -199,22 +238,65 @@ def get_question(session_id):
           AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
           AND TRIM(w.word) <> ''
         ORDER BY uw.next_review ASC
-        LIMIT 20
+        LIMIT 50
     ''', (user_id,)).fetchall()
+    
+    # Filter out already asked words
+    wrongbook_words = [w for w in wrongbook_words if w['id'] not in asked_word_ids]
 
     unseen_words = conn.execute('''
         SELECT w.* FROM words w
         WHERE TRIM(w.word) <> ''
           AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
         ORDER BY RANDOM()
-        LIMIT 20
+        LIMIT 50
     ''', (user_id,)).fetchall()
+    
+    # Filter out already asked words
+    unseen_words = [w for w in unseen_words if w['id'] not in asked_word_ids]
 
-    # 4) select target word
+    # Select target word for fallback generation
     candidates = list(wrongbook_words) + list(unseen_words)
+    
+    # Check if we have any valid candidates
     if not candidates:
+        # Check if it's because all words have been exhausted in this session
+        total_wrongbook = conn.execute('''
+            SELECT COUNT(*) as count FROM user_words uw
+            JOIN words w ON w.id = uw.word_id
+            WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
+              AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
+              AND TRIM(w.word) <> ''
+        ''', (user_id,)).fetchone()['count']
+        
+        total_unseen = conn.execute('''
+            SELECT COUNT(*) as count FROM words w
+            WHERE TRIM(w.word) <> ''
+              AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
+        ''', (user_id,)).fetchone()['count']
+        
+        total_available = total_wrongbook + total_unseen
+        
         conn.close()
-        return jsonify({'error': 'No valid words available. Please seed the DB.'}), 400
+        
+        if total_available == 0:
+            return jsonify({
+                'session_complete': True,
+                'message': 'No words available in the database. Please import vocabulary data.',
+                'reason': 'no_words_in_db'
+            })
+        elif len(asked_word_ids) >= total_available:
+            return jsonify({
+                'session_complete': True,
+                'message': f'Congratulations! You have completed all {len(asked_word_ids)} available words in this session.',
+                'reason': 'all_words_completed'
+            })
+        else:
+            return jsonify({
+                'session_complete': True,
+                'message': 'No more words due for review at this time. Great job!',
+                'reason': 'no_words_due'
+            })
 
     target = random.choice(candidates)
     word_id = target['id']
@@ -225,7 +307,7 @@ def get_question(session_id):
         conn.close()
         return jsonify({'error': 'Invalid word selected.'}), 400
 
-    # 5) get real-time explanation from LLM
+    # Get real-time explanation from LLM (fallback mode)
     try:
         explanation = definition_service.get_word_explanation(word_txt, level)
         correct_en = explanation['definition_en']
@@ -246,16 +328,16 @@ def get_question(session_id):
     # 7) build choices (i18n) using real-time distractors
     correct_pair = {'en': correct_en, 'zh': correct_zh}
     choices_i18n = [correct_pair]
-    
-    # Add distractors from LLM (limit to 2 to make total 3 choices)
-    for i in range(min(2, len(distractors_en), len(distractors_zh))):
+
+    # Add distractors from LLM (limit to 3 to make total 4 choices)
+    for i in range(min(3, len(distractors_en), len(distractors_zh))):
         choices_i18n.append({
             'en': distractors_en[i],
             'zh': distractors_zh[i]
         })
     
-    # Ensure we have exactly 3 choices total
-    while len(choices_i18n) < 3:
+    # Ensure we have exactly 4 choices total
+    while len(choices_i18n) < 4:
         choices_i18n.append({
             'en': 'A general concept or idea',
             'zh': '一般概念或想法'
@@ -270,12 +352,14 @@ def get_question(session_id):
         'question_id': f"{session_id}_{word_id}",
         'word_id': word_id,
         'target_word': word_txt,
+        'target_word_zh': explanation.get('word_zh', correct_zh),
         'sentence': sentence,
         'question_text': f'What does "{word_txt}" mean?',
         'choices_i18n': choices_i18n,
         'correct_answer_i18n': correct_pair,
         'question_number': question_count + 1,
-        'hover_zh_enabled': hover_zh_enabled
+        'hover_zh_enabled': hover_zh_enabled,
+        'source': 'fallback'  # For debugging
     })
 
 @app.route('/api/sessions/<int:session_id>/answer', methods=['POST'])
@@ -295,21 +379,27 @@ def submit_answer(session_id):
     session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
     user_id = session['user_id']
 
-    # fetch explanation for this word (real-time if needed)
-    w = conn.execute('SELECT word, level FROM words WHERE id = ?', (word_id,)).fetchone()
-    if w:
-        word_txt = w['word']
-        level = w['level'] or 'k12'
-        try:
-            explanation = definition_service.get_word_explanation(word_txt, level)
-            explanation_en = explanation['definition_en']
-            explanation_zh = explanation['definition_zh']
-        except Exception:
+    # Try to get explanation from preloaded questions first
+    preloaded_explanation = question_preloader.get_explanation_for_word_id(word_id)
+    if preloaded_explanation:
+        explanation_en = preloaded_explanation['definition_en']
+        explanation_zh = preloaded_explanation['definition_zh']
+    else:
+        # Fallback to real-time generation if not in preload cache
+        w = conn.execute('SELECT word, level FROM words WHERE id = ?', (word_id,)).fetchone()
+        if w:
+            word_txt = w['word']
+            level = w['level'] or 'k12'
+            try:
+                explanation = definition_service.get_word_explanation(word_txt, level)
+                explanation_en = explanation['definition_en']
+                explanation_zh = explanation['definition_zh']
+            except Exception:
+                explanation_en = correct_answer or ""
+                explanation_zh = ""
+        else:
             explanation_en = correct_answer or ""
             explanation_zh = ""
-    else:
-        explanation_en = correct_answer or ""
-        explanation_zh = ""
 
     # record attempt
     conn.execute('''
@@ -474,6 +564,14 @@ def import_wrongbook(user_id):
     except Exception as e:
         return jsonify({'error': f'Error processing CSV: {str(e)}'}), 400
 
+@app.route('/api/config')
+def get_config():
+    """Get application configuration"""
+    return jsonify({
+        'max_questions_per_session': get_max_questions_per_session(),
+        'hover_zh_enabled': _env_flag('LEXIBOOST_HOVER_ZH', default=False)
+    })
+
 @app.route('/api/self-test')
 def self_test():
     """Run self-tests to validate the application"""
@@ -516,7 +614,48 @@ def self_test():
         'tests': tests
     })
 
+@app.route('/api/sessions/<int:session_id>/stop', methods=['POST'])
+def stop_session(session_id):
+    """Stop session and cleanup preloader resources"""
+    question_preloader.stop_session_preloader(session_id)
+    return jsonify({'message': 'Session stopped successfully'})
+
+@app.route('/api/preloader/status/<int:session_id>')
+def get_preloader_status(session_id):
+    """Get preloader queue status for debugging"""
+    status = question_preloader.get_queue_status(session_id)
+    return jsonify(status)
+
+def cleanup_preloaders():
+    """Cleanup all preloader threads on app exit"""
+    print("Cleaning up preloader threads...")
+    for session_id in list(question_preloader.preload_threads.keys()):
+        question_preloader.stop_session_preloader(session_id)
+    print("Cleanup completed.")
+
+def signal_handler(signum, frame):
+    """Handle termination signals for graceful shutdown"""
+    print(f"\nReceived signal {signum}. Shutting down gracefully...")
+    cleanup_preloaders()
+    exit(0)
+
+# Register cleanup function and signal handlers
+atexit.register(cleanup_preloaders)
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+
 if __name__ == '__main__':
-    
-    # Run the application
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    try:
+        # Determine debug mode based on environment variable
+        debug_mode = os.environ.get('LEXIBOOST_ENV', 'development').lower() == 'development'
+        port = int(os.environ.get('LEXIBOOST_PORT', '5000'))
+        
+        print(f"Starting LexiBoost server on port {port} (debug={debug_mode})")
+        app.run(debug=debug_mode, host='0.0.0.0', port=port)
+    except KeyboardInterrupt:
+        print("\nReceived KeyboardInterrupt. Shutting down gracefully...")
+        cleanup_preloaders()
+    except Exception as e:
+        print(f"Unexpected error during startup: {e}")
+        cleanup_preloaders()
+        raise

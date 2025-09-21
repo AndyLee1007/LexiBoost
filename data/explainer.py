@@ -76,6 +76,7 @@ class ExampleItem(BaseModel):
 
 class WordExplanation(BaseModel):
     word: str
+    word_zh: str = Field(..., description="Simple Chinese translation of the word (e.g., 'foggy' -> '有雾', not a full definition).")
     pos: List[str] = Field(..., description="Part-of-speech tags like ['n','v','adj'].")
     definition_en: str = Field(..., description="Concise, plain-English definition for general readers.")
     definition_zh: str = Field(..., description="Natural Chinese explanation matching the English definition.")
@@ -105,24 +106,27 @@ Task:
 For the English word: {word!r}
 Produce STRICT JSON with keys:
 - word
+- word_zh (simple Chinese translation, like 'foggy' -> '有雾', not a full definition)
 - pos (array)
 - definition_en (the correct meaning, level-aware: {level})
 - definition_zh
 - register (optional)
 - notes (optional)
 - examples (1-2 items, each with en and zh)
-- distractors_en (3 alternative incorrect definitions in English only, same style as definition_en, plausible but clearly wrong)
+- distractors_en (3 alternative incorrect definitions in English only, same style and length as definition_en — similar word count, plausible but clearly wrong)
 - distractors_zh (the natural Chinese translations of the 3 distractors above, aligned with distractors_en)
 
 Requirements:
-- "definition_en" should be single-sense and level-aware: {level}.
-- "definition_zh" should be natural, correct, and aligned with definition_en.
-- "distractors_en" must look realistic but be wrong for this word, not random nonsense.
-- "distractors_zh" must be faithful translations of "distractors_en".
-- Examples must use the word in exactly that sense.
-- No extra keys. No preface. No code fences.
-
-Output JSON only.
+- "word_zh" must be a simple, concise Chinese equivalent (1-3 characters/words), NOT a full definition.
+- "definition_en" must reflect the intended sense and difficulty of {level}, expressed clearly in ~8-12 words.
+- "definition_zh" must be a natural and accurate translation of definition_en.
+- Each item in "distractors_en" must:
+  • be plausible for the word but ultimately incorrect,
+  • closely match the word count of definition_en (±2 words),
+  • follow the same formal tone and structure.
+- "distractors_zh" must be faithful and natural Chinese translations of distractors_en, not literal.
+- "examples" must use the word in the sense from definition_en, not the distractors.
+- Output ONLY valid JSON. Do not include any extra text, prefaces, or code fences.
 """
 
 def _get_client() -> OpenAI:

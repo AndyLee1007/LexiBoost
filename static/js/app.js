@@ -6,7 +6,39 @@ let currentQuestion = null;
 let questionNumber = 0;
 let sessionScore = 0;
 let selectedAnswer = null;
+// Default configuration - should match backend defaults
+const DEFAULT_CONFIG = {
+    max_questions_per_session: 50,  // Must match LEXIBOOST_MAX_QUESTIONS default in app.py
+    hover_zh_enabled: false         // Must match LEXIBOOST_HOVER_ZH default in app.py
+};
 
+let appConfig = { ...DEFAULT_CONFIG };
+
+// Load configuration from backend and update appConfig
+async function loadAppConfig() {
+    try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+            const config = await response.json();
+            appConfig = {
+                max_questions_per_session: config.max_questions_per_session ?? DEFAULT_CONFIG.max_questions_per_session,
+                hover_zh_enabled: config.hover_zh_enabled ?? DEFAULT_CONFIG.hover_zh_enabled
+            };
+        }
+    } catch (e) {
+        // If fetch fails, keep defaults
+        console.warn('Failed to load app config from backend, using defaults.', e);
+    }
+}
+
+// Initialize application
+async function initApp() {
+    await loadAppConfig();
+    setupDOMHandlers();
+}
+
+// Start initialization when DOM is ready
+document.addEventListener('DOMContentLoaded', initApp);
 // Utility functions
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -49,6 +81,21 @@ function showError(message) {
 function updateProgressBar(current, total) {
     const percentage = (current / total) * 100;
     document.getElementById('progress-fill').style.width = percentage + '%';
+    // Update total questions display
+    document.getElementById('total-questions').textContent = total;
+}
+
+function showQuestionLoading(isLoading) {
+    const loadingContainer = document.getElementById('question-loading');
+    const questionContent = document.getElementById('question-content');
+    
+    if (isLoading) {
+        loadingContainer.classList.remove('hidden');
+        questionContent.classList.add('hidden');
+    } else {
+        loadingContainer.classList.add('hidden');
+        questionContent.classList.remove('hidden');
+    }
 }
 
 // API functions
@@ -96,12 +143,15 @@ async function loginUser() {
         }
 
         document.getElementById('user-name').textContent = currentUser.username;
+        await loadAppConfig();
         await loadUserStats();
         showScreen('dashboard-screen');
     } catch (error) {
         showError('Failed to login. Please try again.');
     }
 }
+
+// (Removed duplicate loadAppConfig function. The implementation at lines 15-29 is used.)
 
 async function loadUserStats() {
     try {
@@ -126,7 +176,7 @@ async function startQuizSession() {
         sessionScore = 0;
         
         document.getElementById('current-score').textContent = sessionScore;
-        updateProgressBar(0, 50);
+        updateProgressBar(0, appConfig.max_questions_per_session);
         
         showScreen('quiz-screen');
         await loadNextQuestion();
@@ -137,9 +187,12 @@ async function startQuizSession() {
 
 async function loadNextQuestion() {
     try {
+        // Show loading state
+        showQuestionLoading(true);
+        
         const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
         if (q.session_complete) {
-            await showSessionComplete();
+            await showSessionComplete(q);
             return;
         }
 
@@ -150,6 +203,10 @@ async function loadNextQuestion() {
         // basic information
         document.getElementById('question-number').textContent = questionNumber;
         document.getElementById('target-word').textContent = q.target_word;
+        
+        // Prefer concise target_word_zh returned by the API (word-level Chinese mapping). Fall back to definition_zh or choice zh.
+        const targetWordZh = q.target_word_zh || q.definition_zh || (currentQuestion.correct_answer_i18n && currentQuestion.correct_answer_i18n.zh) || q.target_word;
+        document.getElementById('target-word-zh').textContent = targetWordZh;
 
         // sentence highlighting (to prevent special characters from breaking regex)
         const sentenceElement = document.getElementById('sentence-text');
@@ -187,12 +244,23 @@ async function loadNextQuestion() {
         (q.choices_i18n || []).forEach((c, idx) => {
             const choiceElement = document.createElement('div');
             choiceElement.className = 'choice';
-            choiceElement.textContent = c.en || ''; // default to English
             choiceElement.dataset.en = c.en || '';
             choiceElement.dataset.zh = c.zh || '';
 
-            // float tooltip
-            if (q.hover_zh_enabled && c.zh) {
+            // Create bilingual content
+            const enDiv = document.createElement('div');
+            enDiv.className = 'choice-en';
+            enDiv.textContent = c.en || '';
+            
+            const zhDiv = document.createElement('div');
+            zhDiv.className = 'choice-zh';
+            zhDiv.textContent = c.zh || '';
+            
+            choiceElement.appendChild(enDiv);
+            choiceElement.appendChild(zhDiv);
+
+            // Restore hover functionality (only if enabled in config)
+            if (appConfig && appConfig.hover_zh_enabled && c.zh) {
                 choiceElement.addEventListener('mouseenter', () => showTooltip(choiceElement, c.zh));
                 choiceElement.addEventListener('mouseleave', hideTooltip);
             }
@@ -201,12 +269,18 @@ async function loadNextQuestion() {
             choicesContainer.appendChild(choiceElement);
         });
 
-        // submit button
-        document.getElementById('submit-answer').disabled = true;
+        // submit button - reset state and text
+        const submitButton = document.getElementById('submit-answer');
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submit Answer';
 
         // progress bar: completed is questionNumber - 1
-        updateProgressBar(questionNumber - 1, 50);
+        updateProgressBar(questionNumber - 1, appConfig.max_questions_per_session);
+        
+        // Hide loading state and show question content
+        showQuestionLoading(false);
     } catch (error) {
+        showQuestionLoading(false);
         showError('Failed to load question. Please try again.');
     }
 }
@@ -228,7 +302,14 @@ function selectChoice(choiceElement, answer) {
 async function submitAnswer() {
     if (!selectedAnswer) return;
 
+    const submitButton = document.getElementById('submit-answer');
+    const originalButtonText = submitButton.textContent;
+    
     try {
+        // Disable button and show loading
+        submitButton.disabled = true;
+        submitButton.textContent = 'Submitting...';
+        
         const answerData = await apiRequest(`/api/sessions/${currentSession.session_id}/answer`, {
             method: 'POST',
             body: JSON.stringify({
@@ -247,6 +328,9 @@ async function submitAnswer() {
         showAnswerResult(answerData);
 
     } catch (error) {
+        // Restore button state
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
         showError('Failed to submit answer. Please try again.');
     }
 }
@@ -254,56 +338,167 @@ async function submitAnswer() {
 function showAnswerResult(answerData) {
     const correctEn = (currentQuestion.correct_answer_i18n && currentQuestion.correct_answer_i18n.en) || '';
 
-    // Highlight choices
-    document.querySelectorAll('.choice').forEach(choice => {
-        if (choice.textContent === correctEn) {
-            choice.classList.add('correct');
-        } else if (choice.textContent === selectedAnswer && !answerData.is_correct) {
-            choice.classList.add('incorrect');
-        }
+    // Show Chinese translations after answer submission
+    document.getElementById('question-zh').style.display = 'block';
+    document.querySelectorAll('.choice-zh').forEach(zhElement => {
+        zhElement.style.display = 'block';
     });
 
-    // Show result
-    document.getElementById('result-title').textContent = answerData.is_correct ? '✅ Correct!' : '❌ Incorrect';
-    document.getElementById('result-message').textContent = answerData.is_correct 
-        ? 'Well done! You got it right.' 
-        : 'Don\'t worry, keep learning!';
-    document.getElementById('result-message').className = `result-message ${answerData.is_correct ? 'correct' : 'incorrect'}`;
+    // Disable submit button and all choices
+    document.getElementById('submit-answer').style.display = 'none';
+    document.querySelectorAll('.choice').forEach(choice => {
+        choice.style.pointerEvents = 'none';
+        choice.style.cursor = 'default';
+    });
 
-    // explanation (if any) - bilingual display
-    const expEn = answerData.explanation_en || '';
-    const expZh = answerData.explanation_zh || '';
+    // Highlight choices and mark user selection
+    document.querySelectorAll('.choice').forEach(choice => {
+        const choiceEn = choice.dataset.en;
+        
+        // Mark correct answer
+        if (choiceEn === correctEn) {
+            choice.classList.add('correct');
+        }
+        
+        // Mark user's selection
+        if (choiceEn === selectedAnswer) {
+            choice.classList.add('user-selected');
+            if (!answerData.is_correct) {
+                choice.classList.add('incorrect');
+            }
+        }
+        
+        // Remove the selected class as it's now replaced by result classes
+        choice.classList.remove('selected');
+    });
+
+    // Hide explanation section since translations are already shown in choices
     const expEl = document.getElementById('explanation');
-    expEl.innerHTML = '';
-    const enDiv = document.createElement('div');
-    const enStrong = document.createElement('strong');
-    enStrong.textContent = 'Correct answer (EN):';
-    enDiv.appendChild(enStrong);
-    enDiv.appendChild(document.createTextNode(' ' + expEn));
-    expEl.appendChild(enDiv);
-    const zhDiv = document.createElement('div');
-    const zhStrong = document.createElement('strong');
-    zhStrong.textContent = '正确释义（ZH）：';
-    zhDiv.appendChild(zhStrong);
-    zhDiv.appendChild(document.createTextNode(' ' + (expZh || '（无）')));
-    expEl.appendChild(zhDiv);
+    expEl.style.display = 'none';
 
-    showScreen('result-screen');
+    // Handle next question behavior based on answer correctness
+    const nextButton = document.getElementById('next-question-btn');
+    const autoProgressMsg = document.getElementById('auto-progress-message');
+    const resultDisplay = document.getElementById('result-display');
+    
+    // Show result display area
+    resultDisplay.classList.remove('hidden');
+    
+    if (answerData.is_correct) {
+        // For correct answers: show button immediately, no countdown
+        nextButton.style.display = 'block';
+        nextButton.disabled = false;
+        if (autoProgressMsg) {
+            autoProgressMsg.style.display = 'none';
+        }
+    } else {
+        // For incorrect answers: show disabled button with 3s countdown before enabling
+        nextButton.style.display = 'block';
+        nextButton.disabled = true;
+        
+        if (autoProgressMsg) {
+            autoProgressMsg.style.display = 'block';
+            let countdown = 3;
+            autoProgressMsg.textContent = `Next question available in ${countdown} seconds...`;
+            
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    autoProgressMsg.textContent = `Next question available in ${countdown} seconds...`;
+                } else {
+                    clearInterval(countdownInterval);
+                    nextButton.disabled = false;
+                    if (autoProgressMsg) {
+                        autoProgressMsg.style.display = 'none';
+                    }
+                }
+            }, 1000);
+        } else {
+            // Fallback if element doesn't exist
+            setTimeout(() => {
+                nextButton.disabled = false;
+            }, 3000);
+        }
+    }
+
+    // Stay on the same screen - no screen switching
 }
 
 async function nextQuestion() {
-    showScreen('quiz-screen');
+    // Reset the quiz screen state
+    const resultDisplay = document.getElementById('result-display');
+    const submitButton = document.getElementById('submit-answer');
+    
+    // Hide result display
+    resultDisplay.classList.add('hidden');
+    
+    // Reset next button state
+    const nextButton = document.getElementById('next-question-btn');
+    const autoProgressMsg = document.getElementById('auto-progress-message');
+    nextButton.disabled = false;
+    if (autoProgressMsg) {
+        autoProgressMsg.style.display = 'none';
+    }
+    
+    // Hide Chinese translations for new question
+    document.getElementById('question-zh').style.display = 'none';
+    document.querySelectorAll('.choice-zh').forEach(zhElement => {
+        zhElement.style.display = 'none';
+    });
+    
+    // Show submit button
+    submitButton.style.display = 'block';
+    submitButton.disabled = true;
+    
+    // Reset all choices
+    document.querySelectorAll('.choice').forEach(choice => {
+        choice.classList.remove('correct', 'incorrect', 'user-selected', 'selected');
+        choice.style.pointerEvents = 'auto';
+        choice.style.cursor = 'pointer';
+    });
+    
+    // Clear selected answer
+    selectedAnswer = null;
+    
+    // Load next question
     await loadNextQuestion();
 }
 
-async function showSessionComplete() {
+async function showSessionComplete(sessionData = {}) {
     // Calculate final stats
     const accuracy = questionNumber > 0 ? Math.round((sessionScore / questionNumber) * 100) : 0;
     
-    document.getElementById('final-questions').textContent = questionNumber;
-    document.getElementById('final-correct').textContent = sessionScore;
-    document.getElementById('final-score').textContent = sessionScore;
-    document.getElementById('final-accuracy').textContent = accuracy + '%';
+    // Update title and message based on completion reason
+    const titleEl = document.getElementById('complete-title');
+    const messageEl = document.getElementById('complete-message');
+    const statsContainer = document.getElementById('final-stats-container');
+    
+    if (sessionData.reason === 'no_words_in_db') {
+        titleEl.textContent = '📚 No Words Available';
+        messageEl.textContent = sessionData.message || 'No words available in the database. Please import vocabulary data.';
+        statsContainer.style.display = 'none';
+    } else if (sessionData.reason === 'all_words_completed') {
+        titleEl.textContent = '🎯 All Words Completed!';
+        messageEl.textContent = sessionData.message || 'Congratulations! You have completed all available words in this session.';
+        statsContainer.style.display = 'block';
+    } else if (sessionData.reason === 'no_words_due') {
+        titleEl.textContent = '✅ All Caught Up!';
+        messageEl.textContent = sessionData.message || 'No more words due for review at this time. Great job!';
+        statsContainer.style.display = 'block';
+    } else {
+        // Normal session completion (max questions reached)
+        titleEl.textContent = '🎉 Session Complete!';
+        messageEl.textContent = `Great job! You completed ${questionNumber} questions.`;
+        statsContainer.style.display = 'block';
+    }
+    
+    // Update stats if they should be shown
+    if (statsContainer.style.display !== 'none') {
+        document.getElementById('final-questions').textContent = questionNumber;
+        document.getElementById('final-correct').textContent = sessionScore;
+        document.getElementById('final-score').textContent = sessionScore;
+        document.getElementById('final-accuracy').textContent = accuracy + '%';
+    }
 
     showScreen('complete-screen');
 }
@@ -387,8 +582,8 @@ async function runSelfTest() {
     }
 }
 
-// Initialize application
-document.addEventListener('DOMContentLoaded', function() {
+// Additional DOM initialization
+function setupDOMHandlers() {
     // Add enter key support for login
     document.getElementById('username').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
@@ -398,4 +593,4 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Show login screen initially
     showScreen('login-screen');
-});
+}

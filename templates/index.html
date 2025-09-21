@@ -19,7 +19,7 @@
             </div>
             
             <div class="features">
-                <div class="feature">📚 50 questions per session</div>
+                <div class="feature">📚 Configurable questions per session</div>
                 <div class="feature">🧠 Smart repetition system</div>
                 <div class="feature">📊 Track your progress</div>
             </div>
@@ -56,7 +56,7 @@
         <div id="quiz-screen" class="screen hidden">
             <div class="quiz-header">
                 <div class="progress-info">
-                    <span>Question <span id="question-number">1</span> of 50</span>
+                    <span>Question <span id="question-number">1</span> of <span id="total-questions">50</span></span>
                     <div class="progress-bar">
                         <div id="progress-fill" class="progress-fill"></div>
                     </div>
@@ -66,39 +66,49 @@
                 </div>
             </div>
 
-            <div class="question-content">
+            <!-- Loading State -->
+            <div id="question-loading" class="loading-container hidden">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Loading next question...</div>
+            </div>
+
+            <div id="question-content" class="question-content">
                 <div class="sentence-display">
                     <p id="sentence-text"></p>
                 </div>
                 
                 <div class="question-prompt">
-                    What does "<span id="target-word"></span>" mean?
+                    <div class="question-en">What does "<span id="target-word"></span>" mean?</div>
+                    <div class="question-zh" id="question-zh">"<span id="target-word-zh"></span>"的意思是什么？</div>
                 </div>
 
                 <div class="choices" id="answer-choices">
                     <!-- Choices will be populated dynamically -->
                 </div>
 
-                <button id="submit-answer" onclick="submitAnswer()" disabled>Submit Answer</button>
+                <div class="submit-button-container">
+                    <button id="submit-answer" onclick="submitAnswer()" class="primary-btn" disabled>Submit Answer</button>
+                </div>
+                
+                <!-- Result display area (initially hidden) -->
+                <div id="result-display" class="result-display hidden">
+                    <div id="explanation" class="explanation"></div>
+                    <div id="auto-progress-message" class="auto-progress-message" style="display: none;"></div>
+                    <div class="next-button-container">
+                        <button id="next-question-btn" onclick="nextQuestion()" class="primary-btn">Next Question</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Result Screen -->
-        <div id="result-screen" class="screen hidden">
-            <div class="result-content">
-                <h2 id="result-title"></h2>
-                <div id="result-message" class="result-message"></div>
-                <div id="explanation" class="explanation"></div>
-                <button onclick="nextQuestion()" class="primary-btn">Next Question</button>
-            </div>
-        </div>
 
         <!-- Session Complete Screen -->
         <div id="complete-screen" class="screen hidden">
             <div class="complete-content">
-                <h2>🎉 Session Complete!</h2>
-                <div class="final-stats">
-                    <div class="stat">Questions: <span id="final-questions">50</span></div>
+                <h2 id="complete-title">🎉 Session Complete!</h2>
+                <div id="complete-message" class="complete-message"></div>
+                <div id="final-stats-container" class="final-stats">
+                    <div class="stat">Questions: <span id="final-questions">0</span></div>
                     <div class="stat">Correct: <span id="final-correct">0</span></div>
                     <div class="stat">Score: <span id="final-score">0</span></div>
                     <div class="stat">Accuracy: <span id="final-accuracy">0%</span></div>
