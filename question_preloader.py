@@ -9,7 +9,7 @@ import time
 import random
 import sqlite3
 import threading
-from collections import deque
+from collections import deque, OrderedDict
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 import logging
@@ -45,9 +45,10 @@ class QuestionPreloader:
         self.preload_threads = {}  # session_id -> threading.Thread
         self.stop_events = {}      # session_id -> threading.Event
         
-        # Global explanation cache for reuse
-        self.explanation_cache = {}  # (word, level) -> Dict
+        # Global explanation cache for reuse (using OrderedDict for efficient LRU)
+        self.explanation_cache = OrderedDict()  # (word, level) -> Dict
         self.cache_lock = threading.Lock()
+        self.max_cache_size = int(os.getenv("LEXIBOOST_CACHE_MAX_SIZE", "1000"))
         
         # Configuration
         self.queue_size = int(os.getenv("LEXIBOOST_PRELOAD_QUEUE_SIZE", "5"))
@@ -55,7 +56,7 @@ class QuestionPreloader:
         self.question_ttl = int(os.getenv("LEXIBOOST_QUESTION_TTL", "300"))  # seconds
         self.thread_join_timeout = float(os.getenv("LEXIBOOST_THREAD_JOIN_TIMEOUT", "5.0"))  # seconds
         
-        logger.info(f"QuestionPreloader initialized: queue_size={self.queue_size}, preload_ahead={self.preload_ahead}, thread_join_timeout={self.thread_join_timeout}s")
+        logger.info(f"QuestionPreloader initialized: queue_size={self.queue_size}, preload_ahead={self.preload_ahead}, thread_join_timeout={self.thread_join_timeout}s, max_cache_size={self.max_cache_size}")
     
     def start_session_preloader(self, session_id: int, user_id: int) -> None:
         """Start preloader thread for a session"""
@@ -142,21 +143,29 @@ class QuestionPreloader:
         }
     
     def get_cached_explanation(self, word: str, level: str) -> Optional[Dict]:
-        """Get cached explanation for a word"""
+        """Get cached explanation for a word with LRU update"""
         cache_key = (word.lower(), level)
         with self.cache_lock:
-            return self.explanation_cache.get(cache_key)
+            if cache_key in self.explanation_cache:
+                # Move to end to mark as recently used
+                explanation = self.explanation_cache.pop(cache_key)
+                self.explanation_cache[cache_key] = explanation
+                return explanation
+            return None
     
     def cache_explanation(self, word: str, level: str, explanation: Dict) -> None:
-        """Cache explanation for future reuse"""
+        """Cache explanation for future reuse with LRU eviction"""
         cache_key = (word.lower(), level)
         with self.cache_lock:
+            # Remove and re-add to move to end (LRU behavior)
+            if cache_key in self.explanation_cache:
+                del self.explanation_cache[cache_key]
             self.explanation_cache[cache_key] = explanation
-            # Limit cache size to prevent memory bloat
-            if len(self.explanation_cache) > 1000:
-                # Remove oldest entries (simple FIFO)
-                oldest_key = next(iter(self.explanation_cache))
-                del self.explanation_cache[oldest_key]
+            
+            # Limit cache size with LRU eviction
+            while len(self.explanation_cache) > self.max_cache_size:
+                # Remove oldest entry (FIFO when cache is full)
+                self.explanation_cache.popitem(last=False)
 
     def get_explanation_for_word_id(self, word_id: int) -> Optional[Dict]:
         """Get explanation from any preloaded question containing this word_id"""

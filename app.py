@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import random
 import os
 import atexit
+import signal
 from definition_service import definition_service
 from question_preloader import question_preloader
 
@@ -627,17 +628,34 @@ def get_preloader_status(session_id):
 
 def cleanup_preloaders():
     """Cleanup all preloader threads on app exit"""
+    print("Cleaning up preloader threads...")
     for session_id in list(question_preloader.preload_threads.keys()):
         question_preloader.stop_session_preloader(session_id)
+    print("Cleanup completed.")
 
-# Register cleanup function
+def signal_handler(signum, frame):
+    """Handle termination signals for graceful shutdown"""
+    print(f"\nReceived signal {signum}. Shutting down gracefully...")
+    cleanup_preloaders()
+    exit(0)
+
+# Register cleanup function and signal handlers
 atexit.register(cleanup_preloaders)
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == '__main__':
     try:
         # Determine debug mode based on environment variable
         debug_mode = os.environ.get('LEXIBOOST_ENV', 'development').lower() == 'development'
-        app.run(debug=debug_mode, host='0.0.0.0', port=5000)
+        port = int(os.environ.get('LEXIBOOST_PORT', '5000'))
+        
+        print(f"Starting LexiBoost server on port {port} (debug={debug_mode})")
+        app.run(debug=debug_mode, host='0.0.0.0', port=port)
     except KeyboardInterrupt:
-        print("\nShutting down gracefully...")
+        print("\nReceived KeyboardInterrupt. Shutting down gracefully...")
         cleanup_preloaders()
+    except Exception as e:
+        print(f"Unexpected error during startup: {e}")
+        cleanup_preloaders()
+        raise
