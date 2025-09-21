@@ -194,12 +194,12 @@ def get_question(session_id):
     user_id = session['user_id']
 
     # 2) stop at max questions per session
-    max_questions = get_max_questions_per_session()
+    max_questions_per_session = get_max_questions_per_session()
     question_count = conn.execute(
         'SELECT COUNT(*) as count FROM question_attempts WHERE session_id = ?',
         (session_id,)
     ).fetchone()['count']
-    if question_count >= max_questions:
+    if question_count >= max_questions_per_session:
         conn.close()
         return jsonify({'session_complete': True})
 

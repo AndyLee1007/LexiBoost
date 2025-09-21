@@ -6,10 +6,13 @@ let currentQuestion = null;
 let questionNumber = 0;
 let sessionScore = 0;
 let selectedAnswer = null;
-let appConfig = {
-    max_questions_per_session: 50,
-    hover_zh_enabled: false
+// Default configuration - should match backend defaults
+const DEFAULT_CONFIG = {
+    max_questions_per_session: 50,  // Must match LEXIBOOST_MAX_QUESTIONS default in app.py
+    hover_zh_enabled: false         // Must match LEXIBOOST_HOVER_ZH default in app.py
 };
+
+let appConfig = { ...DEFAULT_CONFIG };
 
 // Load configuration from backend and update appConfig
 async function loadAppConfig() {
@@ -18,8 +21,8 @@ async function loadAppConfig() {
         if (response.ok) {
             const config = await response.json();
             appConfig = {
-                max_questions_per_session: config.max_questions_per_session ?? appConfig.max_questions_per_session,
-                hover_zh_enabled: config.hover_zh_enabled ?? appConfig.hover_zh_enabled
+                max_questions_per_session: config.max_questions_per_session ?? DEFAULT_CONFIG.max_questions_per_session,
+                hover_zh_enabled: config.hover_zh_enabled ?? DEFAULT_CONFIG.hover_zh_enabled
             };
         }
     } catch (e) {
@@ -28,8 +31,14 @@ async function loadAppConfig() {
     }
 }
 
-// Immediately load config on app initialization
-loadAppConfig();
+// Initialize application
+async function initApp() {
+    await loadAppConfig();
+    setupDOMHandlers();
+}
+
+// Start initialization when DOM is ready
+document.addEventListener('DOMContentLoaded', initApp);
 // Utility functions
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -573,8 +582,8 @@ async function runSelfTest() {
     }
 }
 
-// Initialize application
-document.addEventListener('DOMContentLoaded', function() {
+// Additional DOM initialization
+function setupDOMHandlers() {
     // Add enter key support for login
     document.getElementById('username').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
@@ -584,4 +593,4 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Show login screen initially
     showScreen('login-screen');
-});
+}

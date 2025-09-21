@@ -94,6 +94,8 @@ class QuestionPreloader:
         thread = self.preload_threads.get(session_id)
         if thread and thread.is_alive():
             thread.join(timeout=self.thread_join_timeout)
+            if thread.is_alive():
+                logger.warning(f"Preloader thread for session {session_id} did not terminate gracefully within timeout")
         
         # Cleanup resources
         self.question_queues.pop(session_id, None)
