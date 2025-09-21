@@ -635,8 +635,9 @@ atexit.register(cleanup_preloaders)
 
 if __name__ == '__main__':
     try:
-        # Run the application
-        app.run(debug=True, host='0.0.0.0', port=5000)
+        # Determine debug mode based on environment variable
+        debug_mode = os.environ.get('LEXIBOOST_ENV', 'development').lower() == 'development'
+        app.run(debug=debug_mode, host='0.0.0.0', port=5000)
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")
         cleanup_preloaders()
