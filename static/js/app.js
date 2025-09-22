@@ -78,6 +78,10 @@ function showError(message) {
     alert(message); // Simple error handling for now
 }
 
+function showMessage(message) {
+    alert(message); // Simple success message for now
+}
+
 function updateProgressBar(current, total) {
     const percentage = (current / total) * 100;
     document.getElementById('progress-fill').style.width = percentage + '%';
@@ -122,10 +126,13 @@ async function apiRequest(url, options = {}) {
 
 // User management
 async function loginUser() {
-    const username = document.getElementById('username').value.trim();
+    const usernameInput = document.getElementById('username');
+    let username = usernameInput.value.trim();
+    
+    // If no username provided, use a default one
     if (!username) {
-        showError('Please enter your name');
-        return;
+        username = 'Guest';
+        usernameInput.value = username;
     }
 
     try {
@@ -146,6 +153,7 @@ async function loginUser() {
         await loadAppConfig();
         await loadUserStats();
         showScreen('dashboard-screen');
+        await loadUserDictionaries();
     } catch (error) {
         showError('Failed to login. Please try again.');
     }
@@ -190,7 +198,7 @@ async function loadNextQuestion() {
         // Show loading state
         showQuestionLoading(true);
         
-        const q = await apiRequest(`/api/sessions/${currentSession.session_id}/question`);
+        const q = await apiRequest(`/api/sessions/${currentSession.id}/question`);
         if (q.session_complete) {
             await showSessionComplete(q);
             return;
@@ -310,7 +318,7 @@ async function submitAnswer() {
         submitButton.disabled = true;
         submitButton.textContent = 'Submitting...';
         
-        const answerData = await apiRequest(`/api/sessions/${currentSession.session_id}/answer`, {
+        const answerData = await apiRequest(`/api/sessions/${currentSession.id}/answer`, {
             method: 'POST',
             body: JSON.stringify({
                 word_id: currentQuestion.word_id,
@@ -506,6 +514,9 @@ async function showSessionComplete(sessionData = {}) {
 function returnToDashboard() {
     loadUserStats(); // Refresh stats
     showScreen('dashboard-screen');
+    if (currentUser) {
+        loadUserDictionaries(); // Refresh dictionaries
+    }
 }
 
 // Import functionality
@@ -582,6 +593,319 @@ async function runSelfTest() {
     }
 }
 
+// Dictionary Management Functions
+
+async function loadUserDictionaries() {
+    if (!currentUser) return;
+    
+    const loadingElement = document.getElementById('dictionaries-loading');
+    const listElement = document.getElementById('dictionaries-list');
+    
+    if (!loadingElement || !listElement) {
+        console.error('Dictionary DOM elements not found');
+        return;
+    }
+    
+    try {
+        loadingElement.style.display = 'block';
+        listElement.innerHTML = '';
+        
+        const response = await fetch(`/api/users/${currentUser.user_id}/dictionaries`);
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}: Failed to load dictionaries`);
+        }
+        
+        loadingElement.style.display = 'none';
+        
+        if (!data.dictionaries || data.dictionaries.length === 0) {
+            listElement.innerHTML = '<p class="loading-text">No dictionaries found. Import your first dictionary to get started!</p>';
+            return;
+        }
+        
+        data.dictionaries.forEach(dict => {
+            const dictCard = createDictionaryCard(dict);
+            listElement.appendChild(dictCard);
+        });
+        
+    } catch (error) {
+        console.error('Error loading dictionaries:', error);
+        if (loadingElement) loadingElement.style.display = 'none';
+        if (listElement) {
+            listElement.innerHTML = '<p class="loading-text" style="color: #d32f2f;">Failed to load dictionaries: ' + error.message + '</p>';
+        }
+    }
+}
+
+function createDictionaryCard(dictionary) {
+    const card = document.createElement('div');
+    card.className = 'dictionary-card';
+    
+    const progressWidth = dictionary.total_words > 0 ? 
+        (dictionary.learned_words / dictionary.total_words * 100) : 0;
+    const encounterWidth = dictionary.total_words > 0 ? 
+        (dictionary.encountered_words / dictionary.total_words * 100) : 0;
+    
+    card.innerHTML = `
+        <div class="dictionary-header">
+            <h4 class="dictionary-name">${escapeHtml(dictionary.name)}</h4>
+            <div class="dictionary-stats">
+                <span>📚 ${dictionary.total_words} words</span>
+                <span>👁️ ${dictionary.encountered_words} encountered</span>
+                <span>✅ ${dictionary.learned_words} learned</span>
+                <span>🎯 ${dictionary.accuracy_rate}% accuracy</span>
+            </div>
+        </div>
+        ${dictionary.description ? `<p class="dictionary-description">${escapeHtml(dictionary.description)}</p>` : ''}
+        <div class="dictionary-progress">
+            <div class="progress-container">
+                <div class="progress-label">Encountered: ${dictionary.encounter_rate}%</div>
+                <div class="progress-bar">
+                    <div class="progress-fill encounter" style="width: ${encounterWidth}%"></div>
+                </div>
+            </div>
+            <div class="progress-container">
+                <div class="progress-label">Learned: ${dictionary.completion_rate}%</div>
+                <div class="progress-bar">
+                    <div class="progress-fill learned" style="width: ${progressWidth}%"></div>
+                </div>
+            </div>
+        </div>
+        <div class="dictionary-actions">
+            <button class="dictionary-btn primary" onclick="startQuizWithDictionary(${dictionary.id})">
+                🚀 Start Quiz
+            </button>
+            ${dictionary.id !== 1 ? `
+            <button class="dictionary-btn danger" onclick="deleteDictionary(${dictionary.id}, '${escapeHtml(dictionary.name)}')" title="Delete Dictionary">
+                🗑️ Delete
+            </button>
+            ` : ''}
+        </div>
+    `;
+    
+    return card;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function startQuizWithDictionary(dictionaryId) {
+    if (!currentUser) {
+        showError('Please log in first');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${currentUser.user_id}/session/start`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ dictionary_id: dictionaryId })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to start session');
+        }
+        
+        currentSession = {
+            id: data.session_id,
+            session_id: data.session_id,  // Keep both for compatibility
+            dictionary_id: data.dictionary_id
+        };
+        
+        // Initialize quiz state
+        questionNumber = 0;
+        sessionScore = 0;
+        selectedAnswer = null;
+        
+        showScreen('quiz-screen');
+        await loadNextQuestion();
+        
+    } catch (error) {
+        showError('Failed to start quiz: ' + error.message);
+        console.error('Error starting quiz:', error);
+    }
+}
+
+function showImportDictionaryScreen() {
+    showScreen('import-dictionary-screen');
+}
+
+function showImportWrongbookScreen() {
+    // Load dictionaries for selection
+    loadDictionariesForWrongbook();
+    showScreen('import-wrongbook-screen');
+}
+
+async function loadDictionariesForWrongbook() {
+    if (!currentUser) return;
+    
+    const selectElement = document.getElementById('wrongbook-dictionary-select');
+    
+    try {
+        selectElement.innerHTML = '<option value="">Loading dictionaries...</option>';
+        
+        const response = await fetch(`/api/users/${currentUser.user_id}/dictionaries`);
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to load dictionaries');
+        }
+        
+        selectElement.innerHTML = '<option value="">Select a dictionary...</option>';
+        
+        data.dictionaries.forEach(dict => {
+            const option = document.createElement('option');
+            option.value = dict.id;
+            option.textContent = dict.name;
+            selectElement.appendChild(option);
+        });
+        
+    } catch (error) {
+        selectElement.innerHTML = '<option value="">Failed to load dictionaries</option>';
+        console.error('Error loading dictionaries for wrongbook:', error);
+    }
+}
+
+async function uploadDictionaryCSV() {
+    const nameInput = document.getElementById('dictionary-name');
+    const descriptionInput = document.getElementById('dictionary-description');
+    const fileInput = document.getElementById('dictionary-csv-file');
+    
+    const name = nameInput.value.trim();
+    const description = descriptionInput.value.trim();
+    const file = fileInput.files[0];
+    
+    if (!name) {
+        showError('Please enter a dictionary name');
+        return;
+    }
+    
+    if (!file) {
+        showError('Please select a CSV file');
+        return;
+    }
+    
+    if (!currentUser) {
+        showError('Please log in first');
+        return;
+    }
+    
+    try {
+        // First create the dictionary
+        const createResponse = await fetch('/api/dictionaries', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: name,
+                description: description,
+                created_by: currentUser.user_id
+            })
+        });
+        
+        const createData = await createResponse.json();
+        
+        if (!createResponse.ok) {
+            throw new Error(createData.error || 'Failed to create dictionary');
+        }
+        
+        // Then import the CSV
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const importResponse = await fetch(`/api/dictionaries/${createData.id}/import`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const importData = await importResponse.json();
+        
+        if (!importResponse.ok) {
+            throw new Error(importData.error || 'Failed to import CSV');
+        }
+        
+        showMessage(`Dictionary imported successfully! ${importData.message}`);
+        
+        // Clear form
+        nameInput.value = '';
+        descriptionInput.value = '';
+        fileInput.value = '';
+        
+        // Return to dashboard and reload dictionaries
+        returnToDashboard();
+        
+    } catch (error) {
+        showError('Failed to import dictionary: ' + error.message);
+        console.error('Error importing dictionary:', error);
+    }
+}
+
+async function uploadWrongbookCSV() {
+    const dictionarySelect = document.getElementById('wrongbook-dictionary-select');
+    const fileInput = document.getElementById('wrongbook-csv-file');
+    
+    const dictionaryId = dictionarySelect.value;
+    const file = fileInput.files[0];
+    
+    if (!dictionaryId) {
+        showError('Please select a dictionary');
+        return;
+    }
+    
+    if (!file) {
+        showError('Please select a CSV file');
+        return;
+    }
+    
+    if (!currentUser) {
+        showError('Please log in first');
+        return;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('dictionary_id', dictionaryId);
+        
+        const response = await fetch(`/api/users/${currentUser.user_id}/wrongbook/import-to-dictionary`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to import wrongbook');
+        }
+        
+        showMessage(`Wrongbook imported successfully! ${data.message}`);
+        
+        // Clear form
+        dictionarySelect.value = '';
+        fileInput.value = '';
+        
+        // Return to dashboard and reload dictionaries
+        returnToDashboard();
+        
+    } catch (error) {
+        showError('Failed to import wrongbook: ' + error.message);
+        console.error('Error importing wrongbook:', error);
+    }
+}
+
+// Update existing functions to support dictionaries
+// We'll modify the original loginUser to load dictionaries after login
+// This is handled by updating the showDashboard function instead
+
 // Additional DOM initialization
 function setupDOMHandlers() {
     // Add enter key support for login
@@ -594,3 +918,30 @@ function setupDOMHandlers() {
     // Show login screen initially
     showScreen('login-screen');
 }
+
+// Dictionary management functions
+async function deleteDictionary(dictionaryId, dictionaryName) {
+    if (!confirm(`Are you sure you want to delete the dictionary "${dictionaryName}"?\n\nThis will permanently delete all words in this dictionary and cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const response = await apiRequest(`/api/dictionaries/${dictionaryId}`, {
+            method: 'DELETE'
+        });
+        
+        showMessage(`Dictionary "${dictionaryName}" deleted successfully!`);
+        
+        // Reload dictionaries list
+        await loadUserDictionaries();
+        
+    } catch (error) {
+        console.error('Failed to delete dictionary:', error);
+        showError(`Failed to delete dictionary: ${error.message}`);
+    }
+}
+
+// Initialize application when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    setupDOMHandlers();
+});

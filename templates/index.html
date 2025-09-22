@@ -14,8 +14,8 @@
             <p>Learn English vocabulary with fun quizzes!</p>
             
             <div class="login-form">
-                <input type="text" id="username" placeholder="Enter your name" maxlength="20">
-                <button onclick="loginUser()">Start Learning</button>
+                <input type="text" id="username" placeholder="Enter your name (or leave blank for Guest)" maxlength="20">
+                <button class="primary-btn" onclick="loginUser()">Start Learning</button>
             </div>
             
             <div class="features">
@@ -29,26 +29,19 @@
         <div id="dashboard-screen" class="screen hidden">
             <div class="header">
                 <h2>Welcome, <span id="user-name"></span>!</h2>
-                <div class="stats">
-                    <div class="stat-item">
-                        <span class="stat-label">Today's Score:</span>
-                        <span id="daily-score" class="stat-value">0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Total Score:</span>
-                        <span id="total-score" class="stat-value">0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Words to Review:</span>
-                        <span id="wrongbook-count" class="stat-value">0</span>
-                    </div>
+                <div class="dashboard-actions">
+                    <button onclick="showImportDictionaryScreen()" class="secondary-btn">📚 Import Dictionary</button>
+                    <button onclick="showImportWrongbookScreen()" class="secondary-btn">📋 Import Wrongbook</button>
+                    <button onclick="runSelfTest()" class="secondary-btn">🧪 Run Self-Test</button>
                 </div>
             </div>
 
-            <div class="actions">
-                <button onclick="startQuizSession()" class="primary-btn">Start Quiz Session</button>
-                <button onclick="showImportScreen()" class="secondary-btn">Import Wrongbook</button>
-                <button onclick="runSelfTest()" class="secondary-btn">Run Self-Test</button>
+            <div class="dictionaries-section">
+                <h3>Your Dictionaries</h3>
+                <div id="dictionaries-loading" class="loading-text">Loading dictionaries...</div>
+                <div id="dictionaries-list" class="dictionaries-list">
+                    <!-- Dictionaries will be populated dynamically -->
+                </div>
             </div>
         </div>
 
@@ -117,7 +110,71 @@
             </div>
         </div>
 
-        <!-- Import Screen -->
+        <!-- Import Dictionary Screen -->
+        <div id="import-dictionary-screen" class="screen hidden">
+            <div class="import-content">
+                <h2>📚 Import New Dictionary</h2>
+                
+                <div class="dictionary-info">
+                    <label for="dictionary-name">Dictionary Name:</label>
+                    <input type="text" id="dictionary-name" placeholder="Enter dictionary name" maxlength="50">
+                    
+                    <label for="dictionary-description">Description (optional):</label>
+                    <textarea id="dictionary-description" placeholder="Enter description" rows="3"></textarea>
+                </div>
+                
+                <div class="file-upload">
+                    <label for="dictionary-csv-file">Upload CSV file:</label>
+                    <input type="file" id="dictionary-csv-file" accept=".csv">
+                    <button onclick="uploadDictionaryCSV()">Import Dictionary</button>
+                </div>
+                
+                <div class="csv-format">
+                    <h4>CSV Format:</h4>
+                    <pre>word,category,level
+apple,fruit,k12
+beautiful,adjective,intermediate
+computer,technology,advanced</pre>
+                    <p><small>Note: Only 'word' column is required. Category and level are optional.</small></p>
+                </div>
+                
+                <button onclick="returnToDashboard()" class="secondary-btn">Back to Dashboard</button>
+            </div>
+        </div>
+
+        <!-- Import Wrongbook Screen -->
+        <div id="import-wrongbook-screen" class="screen hidden">
+            <div class="import-content">
+                <h2>📋 Import Wrongbook</h2>
+                <p>Import words into an existing dictionary and mark them for review:</p>
+                
+                <div class="dictionary-selection">
+                    <label for="wrongbook-dictionary-select">Select Dictionary:</label>
+                    <select id="wrongbook-dictionary-select">
+                        <option value="">Loading dictionaries...</option>
+                    </select>
+                </div>
+                
+                <div class="file-upload">
+                    <label for="wrongbook-csv-file">Upload CSV file:</label>
+                    <input type="file" id="wrongbook-csv-file" accept=".csv">
+                    <button onclick="uploadWrongbookCSV()">Import Wrongbook</button>
+                </div>
+                
+                <div class="csv-format">
+                    <h4>CSV Format:</h4>
+                    <pre>word,category,level
+difficult,adjective,intermediate
+complicated,adjective,advanced
+struggle,verb,intermediate</pre>
+                    <p><small>Words will be added to the selected dictionary and marked for review.</small></p>
+                </div>
+                
+                <button onclick="returnToDashboard()" class="secondary-btn">Back to Dashboard</button>
+            </div>
+        </div>
+
+        <!-- Old Import Screen (keeping for compatibility) -->
         <div id="import-screen" class="screen hidden">
             <div class="import-content">
                 <h2>Import Wrongbook Words</h2>

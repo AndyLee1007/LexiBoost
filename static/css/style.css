@@ -621,3 +621,242 @@ button:disabled {
         width: 100%;
     }
 }
+
+/* Dictionary Management Styles */
+.dashboard-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+}
+
+.dictionaries-section {
+    margin-top: 20px;
+}
+
+.dictionaries-section h3 {
+    color: #333;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.dictionaries-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.dictionary-card {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 20px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.dictionary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    border-color: #667eea;
+}
+
+.dictionary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.dictionary-name {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #333;
+    margin: 0;
+}
+
+.dictionary-stats {
+    display: flex;
+    gap: 15px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.dictionary-description {
+    color: #666;
+    margin: 8px 0 15px 0;
+    font-style: italic;
+}
+
+.dictionary-progress {
+    margin-bottom: 15px;
+}
+
+.progress-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.progress-label {
+    font-size: 0.85rem;
+    color: #666;
+    min-width: 90px;
+    white-space: nowrap;
+}
+
+.progress-container:last-child {
+    margin-bottom: 0;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.progress-fill.encounter {
+    background: linear-gradient(90deg, #ffc107, #ff8f00);
+}
+
+.progress-fill.learned {
+    background: linear-gradient(90deg, #28a745, #20c997);
+}
+
+.progress-text {
+    font-size: 0.9rem;
+    color: #666;
+    white-space: nowrap;
+}
+
+.dictionary-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.dictionary-btn {
+    flex: 1;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.dictionary-btn.primary {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+}
+
+.dictionary-btn.primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.dictionary-btn.secondary {
+    background: #f8f9fa;
+    color: #666;
+    border: 1px solid #e9ecef;
+}
+
+.dictionary-btn.secondary:hover {
+    background: #e9ecef;
+    color: #333;
+}
+
+.dictionary-btn.danger {
+    background: #dc3545;
+    color: white;
+    border: 1px solid #dc3545;
+}
+
+.dictionary-btn.danger:hover {
+    background: #c82333;
+    border: 1px solid #bd2130;
+}
+
+/* Import Screens */
+.dictionary-info {
+    margin-bottom: 20px;
+}
+
+.dictionary-info label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #333;
+}
+
+.dictionary-info input,
+.dictionary-info textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    font-size: 1rem;
+}
+
+.dictionary-selection {
+    margin-bottom: 20px;
+}
+
+.dictionary-selection label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #333;
+}
+
+.dictionary-selection select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 1rem;
+    background: white;
+}
+
+.file-upload {
+    margin-bottom: 20px;
+}
+
+.file-upload label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #333;
+}
+
+.loading-text {
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    padding: 20px;
+}
+
+@media (max-width: 768px) {
+    .dashboard-actions {
+        flex-direction: column;
+    }
+    
+    .dictionary-stats {
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .dictionary-actions {
+        flex-direction: column;
+    }
+}

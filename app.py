@@ -164,22 +164,37 @@ def get_user(username):
 @app.route('/api/users/<int:user_id>/session/start', methods=['POST'])
 def start_session(user_id):
     """Start a new quiz session with preloader"""
+    data = request.get_json() or {}
+    dictionary_id = data.get('dictionary_id', 1)  # Default to dictionary 1
+    
     conn = get_db_connection()
+    cur = conn.cursor()
     
-    # Create new session
-    session_date = datetime.now().date()
-    cursor = conn.execute(
-        'INSERT INTO sessions (user_id, session_date) VALUES (?, ?)',
-        (user_id, session_date)
-    )
-    session_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
-    # Start question preloader for this session
-    question_preloader.start_session_preloader(session_id, user_id)
-    
-    return jsonify({'session_id': session_id})
+    try:
+        # Verify dictionary exists
+        cur.execute("SELECT id FROM dictionaries WHERE id = ?", (dictionary_id,))
+        if not cur.fetchone():
+            return jsonify({'error': 'Dictionary not found'}), 404
+        
+        # Create new session with dictionary
+        session_date = datetime.now().date()
+        cursor = conn.execute(
+            'INSERT INTO sessions (user_id, session_date, dictionary_id) VALUES (?, ?, ?)',
+            (user_id, session_date, dictionary_id)
+        )
+        session_id = cursor.lastrowid
+        conn.commit()
+        
+        # Start question preloader for this session
+        question_preloader.start_session_preloader(session_id, user_id)
+        
+        return jsonify({'session_id': session_id, 'dictionary_id': dictionary_id})
+        
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/sessions/<int:session_id>/question')
 def get_question(session_id):
@@ -221,6 +236,9 @@ def get_question(session_id):
         })
 
     # 4) Fallback to original real-time generation if queue is empty
+    # Get session dictionary_id for filtering
+    dictionary_id = session['dictionary_id'] if session and 'dictionary_id' in session.keys() else 1
+    
     # Get words already asked in this session to avoid repetition
     asked_word_ids = set()
     asked_words = conn.execute('''
@@ -230,16 +248,18 @@ def get_question(session_id):
     asked_word_ids = {row['word_id'] for row in asked_words}
 
     # Candidate words: due wrongbook first, then unseen (exclude already asked)
+    # IMPORTANT: Filter by dictionary_id to match session dictionary
     wrongbook_words = conn.execute('''
         SELECT w.*, uw.next_review, uw.srs_interval 
         FROM words w 
         JOIN user_words uw ON w.id = uw.word_id 
         WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
+          AND w.dictionary_id = ?
           AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
           AND TRIM(w.word) <> ''
         ORDER BY uw.next_review ASC
         LIMIT 50
-    ''', (user_id,)).fetchall()
+    ''', (user_id, dictionary_id)).fetchall()
     
     # Filter out already asked words
     wrongbook_words = [w for w in wrongbook_words if w['id'] not in asked_word_ids]
@@ -247,10 +267,11 @@ def get_question(session_id):
     unseen_words = conn.execute('''
         SELECT w.* FROM words w
         WHERE TRIM(w.word) <> ''
+          AND w.dictionary_id = ?
           AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
         ORDER BY RANDOM()
         LIMIT 50
-    ''', (user_id,)).fetchall()
+    ''', (dictionary_id, user_id)).fetchall()
     
     # Filter out already asked words
     unseen_words = [w for w in unseen_words if w['id'] not in asked_word_ids]
@@ -261,19 +282,22 @@ def get_question(session_id):
     # Check if we have any valid candidates
     if not candidates:
         # Check if it's because all words have been exhausted in this session
+        # IMPORTANT: Filter by dictionary_id to match session dictionary
         total_wrongbook = conn.execute('''
             SELECT COUNT(*) as count FROM user_words uw
             JOIN words w ON w.id = uw.word_id
             WHERE uw.user_id = ? AND uw.in_wrongbook = 1 
+              AND w.dictionary_id = ?
               AND (uw.next_review IS NULL OR uw.next_review <= datetime('now'))
               AND TRIM(w.word) <> ''
-        ''', (user_id,)).fetchone()['count']
+        ''', (user_id, dictionary_id)).fetchone()['count']
         
         total_unseen = conn.execute('''
             SELECT COUNT(*) as count FROM words w
             WHERE TRIM(w.word) <> ''
+              AND w.dictionary_id = ?
               AND w.id NOT IN (SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?)
-        ''', (user_id,)).fetchone()['count']
+        ''', (dictionary_id, user_id)).fetchone()['count']
         
         total_available = total_wrongbook + total_unseen
         
@@ -442,7 +466,18 @@ def submit_answer(session_id):
                 WHERE id = ?
             ''', (next_review, next_interval, user_word['id']))
     else:
-        if not is_correct:
+        # Create user_words record for first encounter (regardless of correct/incorrect)
+        if is_correct:
+            # First time correct
+            next_review, next_interval = calculate_next_review(0, True)
+            in_wrongbook = 1  # Still need more practice
+            conn.execute('''
+                INSERT INTO user_words 
+                (user_id, word_id, correct_count, last_reviewed, next_review, srs_interval, in_wrongbook)
+                VALUES (?, ?, 1, datetime('now'), ?, ?, ?)
+            ''', (user_id, word_id, next_review, next_interval, in_wrongbook))
+        else:
+            # First time incorrect
             next_review, next_interval = calculate_next_review(0, False)
             conn.execute('''
                 INSERT INTO user_words 
@@ -625,6 +660,305 @@ def get_preloader_status(session_id):
     """Get preloader queue status for debugging"""
     status = question_preloader.get_queue_status(session_id)
     return jsonify(status)
+
+# Dictionary Management API Endpoints
+
+@app.route('/api/users/<int:user_id>/dictionaries', methods=['GET'])
+def get_user_dictionaries(user_id):
+    """Get all dictionaries for a user, including progress stats"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # Get dictionaries with word counts and user progress
+        cur.execute("""
+        SELECT 
+            d.id,
+            d.name,
+            d.description,
+            d.created_at,
+            COUNT(DISTINCT w.id) as total_words,
+            COUNT(DISTINCT uw.word_id) as encountered_words,
+            COUNT(DISTINCT CASE WHEN uw.correct_count >= 1 THEN uw.word_id END) as learned_words,
+            ROUND(AVG(CASE WHEN qa.id IS NOT NULL AND s.dictionary_id = d.id THEN qa.is_correct END) * 100, 1) as accuracy_rate
+        FROM dictionaries d
+        LEFT JOIN words w ON d.id = w.dictionary_id
+        LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
+        LEFT JOIN question_attempts qa ON w.id = qa.word_id
+        LEFT JOIN sessions s ON qa.session_id = s.id AND s.user_id = ? AND s.dictionary_id = d.id
+        WHERE d.created_by IS NULL OR d.created_by = ?
+        GROUP BY d.id, d.name, d.description, d.created_at
+        ORDER BY d.created_at DESC
+        """, (user_id, user_id, user_id))
+        
+        dictionaries = []
+        for row in cur.fetchall():
+            completion_rate = 0
+            encounter_rate = 0
+            if row['total_words'] > 0:
+                completion_rate = round((row['learned_words'] / row['total_words']) * 100, 1)
+                encounter_rate = round((row['encountered_words'] / row['total_words']) * 100, 1)
+            
+            dictionaries.append({
+                'id': row['id'],
+                'name': row['name'],
+                'description': row['description'],
+                'created_at': row['created_at'],
+                'total_words': row['total_words'],
+                'encountered_words': row['encountered_words'],
+                'learned_words': row['learned_words'],
+                'completion_rate': completion_rate,
+                'encounter_rate': encounter_rate,
+                'accuracy_rate': row['accuracy_rate'] or 0
+            })
+        
+        return jsonify({'dictionaries': dictionaries})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/dictionaries', methods=['POST'])
+def create_dictionary():
+    """Create a new dictionary"""
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    description = data.get('description', '').strip()
+    created_by = data.get('created_by')
+    
+    if not name:
+        return jsonify({'error': 'Dictionary name is required'}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+        INSERT INTO dictionaries (name, description, created_by)
+        VALUES (?, ?, ?)
+        """, (name, description, created_by))
+        
+        dictionary_id = cur.lastrowid
+        conn.commit()
+        
+        return jsonify({
+            'id': dictionary_id,
+            'name': name,
+            'description': description,
+            'created_by': created_by
+        }), 201
+        
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'Dictionary name might already exist'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/dictionaries/<int:dictionary_id>', methods=['DELETE'])
+def delete_dictionary(dictionary_id):
+    """Delete a dictionary and all its words"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # Check if dictionary exists
+        cur.execute("SELECT id, name FROM dictionaries WHERE id = ?", (dictionary_id,))
+        dictionary = cur.fetchone()
+        if not dictionary:
+            return jsonify({'error': 'Dictionary not found'}), 404
+        
+        # Prevent deletion of default dictionary (ID = 1)
+        if dictionary_id == 1:
+            return jsonify({'error': 'Cannot delete the default dictionary'}), 400
+        
+        # Check if dictionary has any active sessions
+        cur.execute("SELECT COUNT(*) as count FROM sessions WHERE dictionary_id = ?", (dictionary_id,))
+        session_count = cur.fetchone()['count']
+        
+        # Delete associated words first
+        cur.execute("DELETE FROM words WHERE dictionary_id = ?", (dictionary_id,))
+        words_deleted = cur.rowcount
+        
+        # Delete the dictionary
+        cur.execute("DELETE FROM dictionaries WHERE id = ?", (dictionary_id,))
+        
+        conn.commit()
+        
+        return jsonify({
+            'message': f'Dictionary "{dictionary["name"]}" deleted successfully',
+            'words_deleted': words_deleted,
+            'sessions_affected': session_count
+        })
+        
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/dictionaries/<int:dictionary_id>/import', methods=['POST'])
+def import_dictionary_csv(dictionary_id):
+    """Import words from CSV file into a specific dictionary"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    if not file.filename.endswith('.csv'):
+        return jsonify({'error': 'File must be a CSV'}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # Verify dictionary exists
+        cur.execute("SELECT id FROM dictionaries WHERE id = ?", (dictionary_id,))
+        if not cur.fetchone():
+            return jsonify({'error': 'Dictionary not found'}), 404
+        
+        # Parse CSV file
+        file_content = file.read().decode('utf-8-sig')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        # Validate CSV headers
+        required_fields = {'word'}
+        if not required_fields.issubset(set(csv_reader.fieldnames or [])):
+            return jsonify({'error': f'CSV must contain columns: {", ".join(required_fields)}'}), 400
+        
+        inserted = 0
+        updated = 0
+        
+        for row in csv_reader:
+            word = row.get('word', '').strip()
+            if not word:
+                continue
+            
+            category = row.get('category', '').strip()
+            level = row.get('level', 'k12').strip()
+            
+            # Check if word already exists in this dictionary
+            cur.execute("""
+            SELECT id FROM words WHERE word = ? AND dictionary_id = ?
+            """, (word, dictionary_id))
+            
+            existing = cur.fetchone()
+            if existing:
+                # Update existing word
+                cur.execute("""
+                UPDATE words SET category = ?, level = ? WHERE id = ?
+                """, (category, level, existing['id']))
+                updated += 1
+            else:
+                # Insert new word
+                cur.execute("""
+                INSERT INTO words (word, category, level, dictionary_id)
+                VALUES (?, ?, ?, ?)
+                """, (word, category, level, dictionary_id))
+                inserted += 1
+        
+        conn.commit()
+        
+        return jsonify({
+            'message': f'Import completed: {inserted} words added, {updated} words updated',
+            'inserted': inserted,
+            'updated': updated
+        })
+        
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/users/<int:user_id>/wrongbook/import-to-dictionary', methods=['POST'])
+def import_wrongbook_to_dictionary(user_id):
+    """Import wrongbook CSV into a selected dictionary"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    dictionary_id = request.form.get('dictionary_id')
+    
+    if not dictionary_id:
+        return jsonify({'error': 'Dictionary ID is required'}), 400
+    
+    try:
+        dictionary_id = int(dictionary_id)
+    except ValueError:
+        return jsonify({'error': 'Invalid dictionary ID'}), 400
+    
+    if not file.filename.endswith('.csv'):
+        return jsonify({'error': 'File must be a CSV'}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # Verify dictionary exists
+        cur.execute("SELECT id FROM dictionaries WHERE id = ?", (dictionary_id,))
+        if not cur.fetchone():
+            return jsonify({'error': 'Dictionary not found'}), 404
+        
+        # Parse CSV file
+        file_content = file.read().decode('utf-8-sig')
+        csv_reader = csv.DictReader(io.StringIO(file_content))
+        
+        # Validate CSV headers
+        required_fields = {'word'}
+        if not required_fields.issubset(set(csv_reader.fieldnames or [])):
+            return jsonify({'error': f'CSV must contain columns: {", ".join(required_fields)}'}), 400
+        
+        words_added = 0
+        words_marked = 0
+        
+        for row in csv_reader:
+            word = row.get('word', '').strip()
+            if not word:
+                continue
+            
+            category = row.get('category', '').strip()
+            level = row.get('level', 'k12').strip()
+            
+            # Check if word exists in dictionary
+            cur.execute("""
+            SELECT id FROM words WHERE word = ? AND dictionary_id = ?
+            """, (word, dictionary_id))
+            
+            word_row = cur.fetchone()
+            
+            if not word_row:
+                # Add word to dictionary
+                cur.execute("""
+                INSERT INTO words (word, category, level, dictionary_id)
+                VALUES (?, ?, ?, ?)
+                """, (word, category, level, dictionary_id))
+                word_id = cur.lastrowid
+                words_added += 1
+            else:
+                word_id = word_row['id']
+            
+            # Add/update user_words entry (mark as wrongbook)
+            cur.execute("""
+            INSERT OR REPLACE INTO user_words 
+            (user_id, word_id, correct_count, last_reviewed, next_review, srs_interval, in_wrongbook)
+            VALUES (?, ?, 0, NULL, datetime('now'), 0, 1)
+            """, (user_id, word_id))
+            words_marked += 1
+        
+        conn.commit()
+        
+        return jsonify({
+            'message': f'Wrongbook import completed: {words_added} new words added, {words_marked} words marked for review',
+            'words_added': words_added,
+            'words_marked': words_marked
+        })
+        
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 def cleanup_preloaders():
     """Cleanup all preloader threads on app exit"""

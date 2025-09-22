@@ -297,25 +297,28 @@ class QuestionPreloader:
             return None
     
     def _get_next_word_for_session(self, conn, session_id: int, user_id: int) -> Optional[Dict]:
-        """Get next word for session (same logic as original app)"""
-        # Get session info
+        """Get next word for session with dictionary filtering"""
+        # Get session info including dictionary_id
         session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
         if not session:
             return None
         
-        # Get next word using SRS logic
+        dictionary_id = session['dictionary_id'] if session and 'dictionary_id' in session.keys() else 1  # Default to dictionary 1
+        
+        # Get next word using SRS logic, filtered by dictionary
         target = conn.execute('''
             SELECT w.id, w.word, w.level, uw.next_review, uw.srs_interval, uw.correct_count
             FROM words w
             LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
-            WHERE (uw.in_wrongbook = 1 OR uw.in_wrongbook IS NULL)
+            WHERE w.dictionary_id = ?
+              AND (uw.in_wrongbook = 1 OR uw.in_wrongbook IS NULL)
               AND (uw.next_review IS NULL OR uw.next_review <= CURRENT_TIMESTAMP)
             ORDER BY 
               CASE WHEN uw.next_review IS NULL THEN 0 ELSE 1 END,
               uw.next_review ASC,
               RANDOM()
             LIMIT 1
-        ''', (user_id,)).fetchone()
+        ''', (user_id, dictionary_id)).fetchone()
         
         return dict(target) if target else None
     
