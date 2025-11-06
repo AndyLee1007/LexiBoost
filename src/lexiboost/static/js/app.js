@@ -569,7 +569,7 @@ function showAnswerResult(answerData) {
         
         if (autoProgressMsg) {
             autoProgressMsg.style.display = 'block';
-            let countdown = 3;
+            let countdown = 0;
             autoProgressMsg.textContent = `Next question available in ${countdown} seconds...`;
             
             const countdownInterval = setInterval(() => {

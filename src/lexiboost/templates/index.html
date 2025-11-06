@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LexiBoost - English Vocabulary Learning</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20251009220000">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -30,9 +31,11 @@
             <div class="header">
                 <h2>Welcome, <span id="user-name"></span>!</h2>
                 <div class="dashboard-actions">
+                    <button onclick="showTrendsScreen()" class="secondary-btn">📊 View Trends</button>
                     <button onclick="showImportDictionaryScreen()" class="secondary-btn">📚 Import Dictionary</button>
                     <button onclick="showImportWrongbookScreen()" class="secondary-btn">📋 Import Wrongbook</button>
                     <button onclick="runSelfTest()" class="secondary-btn">🧪 Run Self-Test</button>
+                    <button onclick="testTimer()" class="secondary-btn">⏰ Test Timer</button>
                 </div>
             </div>
 
@@ -53,6 +56,10 @@
                     <div class="progress-bar">
                         <div id="progress-fill" class="progress-fill"></div>
                     </div>
+                </div>
+                <div class="timer-display hidden" id="timer-container">
+                    <div class="timer-label">Time Remaining:</div>
+                    <div class="timer-value" id="timer-display">10:00</div>
                 </div>
                 <div class="score-display">
                     Score: <span id="current-score">0</span>
@@ -100,12 +107,34 @@
             <div class="complete-content">
                 <h2 id="complete-title">🎉 Session Complete!</h2>
                 <div id="complete-message" class="complete-message"></div>
+                
+                <!-- Session Results -->
                 <div id="final-stats-container" class="final-stats">
                     <div class="stat">Questions: <span id="final-questions">0</span></div>
                     <div class="stat">Correct: <span id="final-correct">0</span></div>
-                    <div class="stat">Score: <span id="final-score">0</span></div>
                     <div class="stat">Accuracy: <span id="final-accuracy">0%</span></div>
+                    <div class="stat">New Words: <span id="final-new-words">0</span></div>
+                    <div class="stat">Review Words: <span id="final-review-words">0</span></div>
                 </div>
+
+                <!-- Learning Trends Section -->
+                <div id="trends-section" class="trends-section">
+                    <div class="trends-header">
+                        <span>📊 Accuracy Trends</span>
+                    </div>
+                    <div id="trends-content" class="trends-content">
+                        <div id="trends-chart-container" class="trends-chart-container">
+                            <canvas id="trends-chart"></canvas>
+                        </div>
+                        <div id="trends-summary" class="trends-summary">
+                            <div class="summary-stat">Average: <span id="avg-accuracy">0%</span></div>
+                            <div class="summary-stat">Sessions: <span id="total-sessions">0</span></div>
+                        </div>
+                        <div id="trends-loading" class="trends-loading hidden">Loading trends...</div>
+                        <div id="trends-no-data" class="trends-no-data hidden">Complete more sessions to see trends</div>
+                    </div>
+                </div>
+
                 <button onclick="returnToDashboard()" class="primary-btn">Return to Dashboard</button>
             </div>
         </div>
@@ -201,8 +230,35 @@ sad,feeling or showing sorrow</pre>
                 <button onclick="returnToDashboard()" class="secondary-btn">Back to Dashboard</button>
             </div>
         </div>
+
+        <!-- Standalone Trends Screen -->
+        <div id="trends-screen" class="screen hidden">
+            <div class="trends-content">
+                <h2>📊 Learning Progress Trends</h2>
+                
+                <!-- Learning Trends Section -->
+                <div id="standalone-trends-section" class="trends-section">
+                    <div class="trends-header">
+                        <span>📊 Accuracy Trends</span>
+                    </div>
+                    <div id="standalone-trends-content" class="trends-content">
+                        <div id="standalone-trends-chart-container" class="trends-chart-container">
+                            <canvas id="standalone-trends-chart"></canvas>
+                        </div>
+                        <div id="standalone-trends-summary" class="trends-summary">
+                            <div class="summary-stat">Average: <span id="standalone-avg-accuracy">0%</span></div>
+                            <div class="summary-stat">Sessions: <span id="standalone-total-sessions">0</span></div>
+                        </div>
+                        <div id="standalone-trends-loading" class="trends-loading hidden">Loading trends...</div>
+                        <div id="standalone-trends-no-data" class="trends-no-data hidden">Complete more sessions to see trends</div>
+                    </div>
+                </div>
+
+                <button onclick="returnToDashboard()" class="primary-btn">Return to Dashboard</button>
+            </div>
+        </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=20251009220000"></script>
 </body>
 </html>

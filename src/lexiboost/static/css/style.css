@@ -256,6 +256,60 @@ button:disabled {
     color: #667eea;
 }
 
+/* Timer Display */
+.timer-display {
+    text-align: center;
+    min-width: 120px;
+}
+
+.timer-label {
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 5px;
+}
+
+.timer-value {
+    font-size: 24px;
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+    padding: 10px 15px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+/* Timer color states */
+.timer-normal {
+    background: #e8f5e8;
+    color: #28a745;
+    border: 2px solid #28a745;
+}
+
+.timer-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 2px solid #ffc107;
+    animation: pulse-warning 1s infinite;
+}
+
+.timer-danger {
+    background: #f8d7da;
+    color: #721c24;
+    border: 2px solid #dc3545;
+    animation: pulse-danger 0.5s infinite;
+}
+
+@keyframes pulse-warning {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+@keyframes pulse-danger {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
 .question-content {
     text-align: center;
 }
@@ -493,16 +547,16 @@ button:disabled {
 
 .final-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 15px;
-    margin: 30px 0;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px;
+    margin: 20px 0;
 }
 
 .stat {
     background: #f8f9fa;
-    padding: 20px;
-    border-radius: 10px;
-    font-size: 16px;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-size: 14px;
 }
 
 .stat span {
@@ -860,3 +914,147 @@ button:disabled {
         flex-direction: column;
     }
 }
+
+/* Trends Section Styles */
+.trends-section {
+    margin: 20px 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f9f9f9;
+}
+
+.trends-header {
+    padding: 15px 20px;
+    background: #f0f0f0;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+    color: #333;
+    transition: background-color 0.2s;
+}
+
+.trends-header:hover {
+    background: #e8e8e8;
+}
+
+.trends-toggle {
+    font-size: 0.8em;
+    transition: transform 0.3s ease;
+}
+
+.trends-toggle.expanded {
+    transform: rotate(180deg);
+}
+
+.trends-content {
+    padding: 0 20px;
+    max-height: 500px;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+}
+
+.trends-content.collapsed {
+    max-height: 0;
+    padding: 0 20px;
+}
+
+.trends-controls {
+    padding: 15px 0;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 15px;
+}
+
+.hover-toggle {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.hover-toggle input[type="checkbox"] {
+    margin-right: 10px;
+    transform: scale(1.2);
+}
+
+.trends-chart-container {
+    height: 300px;
+    margin: 15px 0;
+    position: relative;
+}
+
+.trends-summary {
+    display: flex;
+    gap: 20px;
+    padding: 15px 0;
+    border-top: 1px solid #e0e0e0;
+}
+
+.summary-stat {
+    padding: 10px 15px;
+    background: white;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+    font-size: 0.9em;
+    font-weight: bold;
+    color: #333;
+}
+
+.trends-loading, .trends-no-data {
+    text-align: center;
+    padding: 40px 20px;
+    color: #666;
+    font-style: italic;
+}
+
+/* Enhanced final stats */
+.final-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.final-stats .stat {
+    text-align: center;
+    padding: 12px 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    font-size: 14px;
+}
+
+/* Mobile responsive for trends */
+@media (max-width: 768px) {
+    .trends-summary {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .trends-chart-container {
+        height: 250px;
+    }
+    
+    .final-stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+}
+
+/* Force compact layout - override any caching issues */
+#complete-screen .final-stats {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)) !important;
+    gap: 10px !important;
+    margin: 20px 0 !important;
+}
+
+#complete-screen .final-stats .stat {
+    padding: 12px 15px !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+}
+

@@ -1,0 +1,45 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .timer-display {
+            text-align: center;
+            min-width: 120px;
+            border: 2px solid red; /* Debug border */
+        }
+        .timer-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+        .timer-value {
+            font-size: 24px;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            padding: 10px 15px;
+            border-radius: 8px;
+            background: #e8f5e8;
+            color: #28a745;
+            border: 2px solid #28a745;
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <h1>Timer Test</h1>
+    <div class="timer-display" id="timer-container">
+        <div class="timer-label">Time Remaining:</div>
+        <div class="timer-value" id="timer-display">00:15</div>
+    </div>
+    
+    <div class="timer-display hidden" id="timer-container-hidden">
+        <div class="timer-label">Time Remaining (Hidden):</div>
+        <div class="timer-value" id="timer-display-hidden">00:15</div>
+    </div>
+    
+    <button onclick="document.getElementById('timer-container-hidden').classList.remove('hidden')">Show Hidden Timer</button>
+</body>
+</html>

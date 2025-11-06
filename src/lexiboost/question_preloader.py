@@ -13,8 +13,9 @@ from collections import deque, OrderedDict
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 
-from definition_service import definition_service
+from .definition_service import definition_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,12 +39,16 @@ class PreloadedQuestion:
 class QuestionPreloader:
     """Memory-based question preloader with background thread"""
     
-    def __init__(self, db_path: str = "lexiboost.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        package_dir = Path(__file__).resolve().parent
+        default_db = os.getenv("LEXIBOOST_DB_PATH", str(package_dir.parents[1] / "lexiboost.db"))
+        self.db_path = db_path or default_db
         self.question_queues = {}  # session_id -> deque of PreloadedQuestion
         self.session_locks = {}    # session_id -> threading.Lock
         self.preload_threads = {}  # session_id -> threading.Thread
         self.stop_events = {}      # session_id -> threading.Event
+        self.session_word_pools = {}  # session_id -> deque of candidate word dicts
+        self.session_served_words = {}  # session_id -> set of word_ids already used
         
         # Global explanation cache for reuse (using OrderedDict for efficient LRU)
         self.explanation_cache = OrderedDict()  # (word, level) -> Dict
@@ -52,11 +57,10 @@ class QuestionPreloader:
         
         # Configuration
         self.queue_size = int(os.getenv("LEXIBOOST_PRELOAD_QUEUE_SIZE", "5"))
-        self.preload_ahead = int(os.getenv("LEXIBOOST_PRELOAD_AHEAD", "3"))
-        self.question_ttl = int(os.getenv("LEXIBOOST_QUESTION_TTL", "300"))  # seconds
+        self.max_questions_per_session = int(os.getenv("LEXIBOOST_MAX_QUESTIONS", "50"))
         self.thread_join_timeout = float(os.getenv("LEXIBOOST_THREAD_JOIN_TIMEOUT", "5.0"))  # seconds
         
-        logger.info(f"QuestionPreloader initialized: queue_size={self.queue_size}, preload_ahead={self.preload_ahead}, thread_join_timeout={self.thread_join_timeout}s, max_cache_size={self.max_cache_size}")
+        logger.info(f"QuestionPreloader initialized: queue_size={self.queue_size}, thread_join_timeout={self.thread_join_timeout}s, max_cache_size={self.max_cache_size}")
     
     def start_session_preloader(self, session_id: int, user_id: int) -> None:
         """Start preloader thread for a session"""
@@ -68,6 +72,13 @@ class QuestionPreloader:
         self.question_queues[session_id] = deque(maxlen=self.queue_size)
         self.session_locks[session_id] = threading.Lock()
         self.stop_events[session_id] = threading.Event()
+        self.session_served_words[session_id] = set()
+
+        initial_pool = self._build_session_word_pool(session_id, user_id)
+        if not initial_pool:
+            logger.info(f"No candidate words available for session {session_id} during initialization")
+            initial_pool = deque()
+        self.session_word_pools[session_id] = initial_pool
         
         # Start preloader thread
         thread = threading.Thread(
@@ -102,6 +113,8 @@ class QuestionPreloader:
         self.session_locks.pop(session_id, None)
         self.preload_threads.pop(session_id, None)
         self.stop_events.pop(session_id, None)
+        self.session_word_pools.pop(session_id, None)
+        self.session_served_words.pop(session_id, None)
         
         logger.info(f"Stopped preloader thread for session {session_id}")
     
@@ -112,12 +125,6 @@ class QuestionPreloader:
         
         with self.session_locks[session_id]:
             queue = self.question_queues[session_id]
-            
-            # Remove expired questions
-            current_time = time.time()
-            while queue and (current_time - queue[0].created_at) > self.question_ttl:
-                expired = queue.popleft()
-                logger.debug(f"Removed expired question for word {expired.word_txt}")
             
             # Return next question if available
             if queue:
@@ -196,7 +203,7 @@ class QuestionPreloader:
                         queue = self.question_queues[session_id]
                         current_size = len(queue)
                     
-                    if current_size < self.preload_ahead:
+                    if current_size < self.queue_size:
                         # Generate a new question
                         question = self._generate_question(session_id, user_id)
                         if question:
@@ -218,17 +225,90 @@ class QuestionPreloader:
             logger.error(f"Fatal error in preloader worker for session {session_id}: {e}")
         
         logger.info(f"Preloader worker stopped for session {session_id}")
+
+    def _build_session_word_pool(self, session_id: int, user_id: int) -> deque:
+        """Build the one-time candidate word list for this session."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+
+        try:
+            session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
+            if not session:
+                return deque()
+
+            dictionary_id = session['dictionary_id'] if session and 'dictionary_id' in session.keys() else 1
+
+            max_words = self.max_questions_per_session
+
+            candidates: List[Dict] = []
+            seen_ids = set()
+
+            wrongbook_rows = conn.execute('''
+                SELECT w.id, w.word, w.level, uw.next_review, uw.srs_interval, uw.correct_count
+                FROM words w
+                JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
+                WHERE w.dictionary_id = ?
+                  AND (uw.in_wrongbook = 1 OR uw.in_wrongbook IS NULL)
+                  AND (uw.next_review IS NULL OR uw.next_review <= CURRENT_TIMESTAMP)
+                  AND TRIM(w.word) <> ''
+                ORDER BY 
+                  CASE WHEN uw.next_review IS NULL THEN 0 ELSE 1 END,
+                  uw.next_review ASC,
+                  RANDOM()
+                LIMIT ?
+            ''', (user_id, dictionary_id, max_words)).fetchall()
+
+            def _accumulate(rows):
+                for row in rows:
+                    word_id = row['id']
+                    if word_id in seen_ids:
+                        continue
+                    candidates.append(dict(row))
+                    seen_ids.add(word_id)
+                    if len(candidates) >= max_words:
+                        break
+
+            _accumulate(wrongbook_rows)
+
+            remaining = max_words - len(candidates)
+            if remaining > 0:
+                unseen_rows = conn.execute('''
+                    SELECT w.id, w.word, w.level
+                    FROM words w
+                    WHERE TRIM(w.word) <> ''
+                      AND w.dictionary_id = ?
+                      AND w.id NOT IN (
+                            SELECT uw.word_id FROM user_words uw WHERE uw.user_id = ?
+                      )
+                    ORDER BY RANDOM()
+                    LIMIT ?
+                ''', (dictionary_id, user_id, remaining)).fetchall()
+                _accumulate(unseen_rows)
+
+            return deque(candidates)
+
+        finally:
+            conn.close()
+
+    def _get_next_word_from_pool(self, session_id: int, user_id: int) -> Optional[Dict]:
+        """Retrieve the next word for question generation."""
+        lock = self.session_locks.get(session_id)
+        if lock is None:
+            return None
+
+        with lock:
+            pool = self.session_word_pools.get(session_id)
+            if not pool:
+                return None
+            if len(pool) == 0:
+                return None
+            return pool.popleft()
     
     def _generate_question(self, session_id: int, user_id: int) -> Optional[PreloadedQuestion]:
         """Generate a single question with LLM call"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            
-            # Get next word using the same logic as the original app
-            target = self._get_next_word_for_session(conn, session_id, user_id)
+            target = self._get_next_word_from_pool(session_id, user_id)
             if not target:
-                conn.close()
                 return None
             
             word_id = target['id']
@@ -236,7 +316,6 @@ class QuestionPreloader:
             level = (target['level'] or 'k12').strip() if 'level' in target.keys() else 'k12'
             
             if not word_txt:
-                conn.close()
                 return None
             
             # Call LLM for explanation (this is the expensive operation)
@@ -276,8 +355,13 @@ class QuestionPreloader:
             
             random.shuffle(choices_i18n)
             
-            conn.close()
-            
+            lock = self.session_locks.get(session_id)
+            if lock:
+                with lock:
+                    self.session_served_words.setdefault(session_id, set()).add(word_id)
+            else:
+                self.session_served_words.setdefault(session_id, set()).add(word_id)
+
             return PreloadedQuestion(
                 word_id=word_id,
                 word_txt=word_txt,
@@ -295,32 +379,6 @@ class QuestionPreloader:
         except Exception as e:
             logger.error(f"Failed to generate question for session {session_id}: {e}")
             return None
-    
-    def _get_next_word_for_session(self, conn, session_id: int, user_id: int) -> Optional[Dict]:
-        """Get next word for session with dictionary filtering"""
-        # Get session info including dictionary_id
-        session = conn.execute('SELECT * FROM sessions WHERE id = ?', (session_id,)).fetchone()
-        if not session:
-            return None
-        
-        dictionary_id = session['dictionary_id'] if session and 'dictionary_id' in session.keys() else 1  # Default to dictionary 1
-        
-        # Get next word using SRS logic, filtered by dictionary
-        target = conn.execute('''
-            SELECT w.id, w.word, w.level, uw.next_review, uw.srs_interval, uw.correct_count
-            FROM words w
-            LEFT JOIN user_words uw ON w.id = uw.word_id AND uw.user_id = ?
-            WHERE w.dictionary_id = ?
-              AND (uw.in_wrongbook = 1 OR uw.in_wrongbook IS NULL)
-              AND (uw.next_review IS NULL OR uw.next_review <= CURRENT_TIMESTAMP)
-            ORDER BY 
-              CASE WHEN uw.next_review IS NULL THEN 0 ELSE 1 END,
-              uw.next_review ASC,
-              RANDOM()
-            LIMIT 1
-        ''', (user_id, dictionary_id)).fetchone()
-        
-        return dict(target) if target else None
     
     def _generate_sentence_with_word(self, word: str) -> str:
         """Generate a simple sentence with the word (fallback)"""

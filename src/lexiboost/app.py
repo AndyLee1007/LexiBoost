@@ -1,80 +1,35 @@
-#!/usr/bin/env python3#!/usr/bin/env python3#!/usr/bin/env python3#!/usr/bin/env python3
+#!/usr/bin/env python3
+"""
+LexiBoost - English Vocabulary Learning App for Kids
+Main Flask application entry point
+"""
 
-"""Entry point that boots the LexiBoost application from the src package."""
-
-"""Thin wrapper to launch the LexiBoost application from the src package."""
-
-import os
-
-import sys"""Convenience entry point that loads the LexiBoost app from the src package.""""""
-
-
-
-PROJECT_ROOT = os.path.dirname(__file__)import os
-
-SRC_PATH = os.path.join(PROJECT_ROOT, "src")
-
-if SRC_PATH not in sys.path:import sysLexiBoost - English Vocabulary Learning App for Kids
-
-    sys.path.insert(0, SRC_PATH)
-
-
-
-from lexiboost.app import create_app, run_server  # type: ignore  # noqa: E402
-
-PROJECT_ROOT = os.path.dirname(__file__)import osMain Flask application entry point
-
-app = create_app()
-
-SRC_PATH = os.path.join(PROJECT_ROOT, 'src')
-
-if __name__ == "__main__":
-
-    run_server()if SRC_PATH not in sys.path:import sys"""
-
-
-    sys.path.insert(0, SRC_PATH)
-
-
-
-from lexiboost.app import create_app, run_server  # type: ignore  # noqa: E402
-
-PROJECT_ROOT = os.path.dirname(__file__)from flask import Flask, request, jsonify, render_template
-
-app = create_app()
-
-SRC_PATH = os.path.join(PROJECT_ROOT, 'src')from flask_cors import CORS
-
-if __name__ == '__main__':
-
-    run_server()if SRC_PATH not in sys.path:import sqlite3
-
-
-    sys.path.insert(0, SRC_PATH)import csv
-
+from flask import Flask, request, jsonify, render_template
+from flask_cors import CORS
+import sqlite3
+import csv
 import io
-
-from lexiboost.app import create_app, app  # type: ignore  # noqa: E402import os
-
+import os
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
+import random
+import atexit
+import signal
+from .definition_service import definition_service
+from .question_preloader import question_preloader
 
-if __name__ == '__main__':import random
+PACKAGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_DIR.parents[1]
 
-    application = create_app()import atexit
-
-    debug_mode = os.environ.get('LEXIBOOST_ENV', 'development').lower() == 'development'import signal
-
-    port = int(os.environ.get('LEXIBOOST_PORT', '5000'))from definition_service import definition_service
-
-    print(f"Starting LexiBoost server on port {port} (debug={debug_mode})")from question_preloader import question_preloader
-
-    application.run(debug=debug_mode, host='0.0.0.0', port=port)
-
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    static_folder=str(PACKAGE_DIR / 'static'),
+    template_folder=str(PACKAGE_DIR / 'templates')
+)
 CORS(app)
 
 # Database configuration
-DATABASE = 'lexiboost.db'
+DATABASE = os.getenv('LEXIBOOST_DB_PATH', str(PROJECT_ROOT / 'lexiboost.db'))
 
 def _to_sql_ts(dt):
     if not dt:
@@ -1298,7 +1253,11 @@ atexit.register(cleanup_preloaders)
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
-if __name__ == '__main__':
+def create_app():
+    """Application factory for external runners."""
+    return app
+def run_server():
+    """Run the Flask development server using environment configuration."""
     try:
         # Determine debug mode based on environment variable
         debug_mode = os.environ.get('LEXIBOOST_ENV', 'development').lower() == 'development'
@@ -1313,3 +1272,7 @@ if __name__ == '__main__':
         print(f"Unexpected error during startup: {e}")
         cleanup_preloaders()
         raise
+
+
+if __name__ == '__main__':
+    run_server()

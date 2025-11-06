@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timer Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+        .timer-display { text-align: center; min-width: 120px; margin: 20px 0; }
+        .timer-label { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+        .timer-value { font-size: 24px; font-weight: bold; font-family: 'Courier New', monospace; padding: 10px 15px; border-radius: 8px; transition: all 0.3s ease; }
+        .timer-normal { background: #e8f5e8; color: #28a745; border: 2px solid #28a745; }
+        .timer-warning { background: #fff3cd; color: #856404; border: 2px solid #ffc107; animation: pulse-warning 1s infinite; }
+        .timer-danger { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; animation: pulse-danger 0.5s infinite; }
+        .hidden { display: none !important; }
+        .btn { padding: 10px 20px; margin: 10px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .debug { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace; }
+        @keyframes pulse-warning { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        @keyframes pulse-danger { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Timer Debug Page</h1>
+        
+        <div class="debug">
+            <strong>Configuration:</strong><br>
+            <div id="config-display">Loading...</div>
+        </div>
+        
+        <div class="timer-display hidden" id="timer-container">
+            <div class="timer-label">Time Remaining:</div>
+            <div class="timer-value timer-normal" id="timer-display">00:15</div>
+        </div>
+        
+        <div>
+            <button class="btn btn-primary" onclick="testShowTimer()">Show Timer</button>
+            <button class="btn btn-primary" onclick="testStartTimer()">Start Timer</button>
+            <button class="btn btn-primary" onclick="testStopTimer()">Stop Timer</button>
+            <button class="btn btn-primary" onclick="loadConfig()">Reload Config</button>
+        </div>
+        
+        <div class="debug">
+            <strong>Debug Log:</strong><br>
+            <div id="debug-log"></div>
+        </div>
+    </div>
+
+    <script>
+        let timerInterval = null;
+        let remainingTime = 15;
+        let config = {};
+        
+        function log(message) {
+            const debugLog = document.getElementById('debug-log');
+            const timestamp = new Date().toLocaleTimeString();
+            debugLog.innerHTML += `${timestamp}: ${message}<br>`;
+            debugLog.scrollTop = debugLog.scrollHeight;
+            console.log(message);
+        }
+        
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                config = await response.json();
+                document.getElementById('config-display').innerHTML = JSON.stringify(config, null, 2);
+                log(`Config loaded: timer_enabled=${config.timer_enabled}, time_per_question=${config.time_per_question}`);
+            } catch (e) {
+                log(`Config load failed: ${e.message}`);
+            }
+        }
+        
+        function testShowTimer() {
+            const container = document.getElementById('timer-container');
+            container.classList.remove('hidden');
+            log('Timer container shown');
+        }
+        
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        function updateTimerDisplay() {
+            const timerDisplay = document.getElementById('timer-display');
+            timerDisplay.textContent = formatTime(remainingTime);
+            
+            // Update color
+            timerDisplay.className = 'timer-value';
+            if (remainingTime > 10) {
+                timerDisplay.classList.add('timer-normal');
+            } else if (remainingTime > 5) {
+                timerDisplay.classList.add('timer-warning');
+            } else {
+                timerDisplay.classList.add('timer-danger');
+            }
+            
+            log(`Timer updated: ${formatTime(remainingTime)}`);
+        }
+        
+        function testStartTimer() {
+            if (!config.timer_enabled) {
+                log('Timer not enabled in config!');
+                return;
+            }
+            
+            testShowTimer();
+            remainingTime = config.time_per_question || 15;
+            
+            if (timerInterval) {
+                clearInterval(timerInterval);
+            }
+            
+            updateTimerDisplay();
+            
+            timerInterval = setInterval(() => {
+                remainingTime--;
+                updateTimerDisplay();
+                
+                if (remainingTime <= 0) {
+                    clearInterval(timerInterval);
+                    log('Timer expired!');
+                }
+            }, 1000);
+            
+            log('Timer started');
+        }
+        
+        function testStopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                log('Timer stopped');
+            }
+        }
+        
+        // Load config on page load
+        document.addEventListener('DOMContentLoaded', loadConfig);
+    </script>
+</body>
+</html>

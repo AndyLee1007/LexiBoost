@@ -37,7 +37,7 @@ class DefinitionService:
         
         # First try to get from preloader cache
         try:
-            from question_preloader import question_preloader
+            from .question_preloader import question_preloader
             cached_explanation = question_preloader.get_cached_explanation(word, level)
             if cached_explanation:
                 return cached_explanation
@@ -53,7 +53,7 @@ class DefinitionService:
             
             # Cache the result for future reuse
             try:
-                from question_preloader import question_preloader
+                from .question_preloader import question_preloader
                 question_preloader.cache_explanation(word, level, explanation)
             except Exception:
                 pass  # If caching fails, continue
