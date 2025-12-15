@@ -80,8 +80,6 @@ class WordExplanation(BaseModel):
     pos: List[str] = Field(..., description="Part-of-speech tags like ['n','v','adj'].")
     definition_en: str = Field(..., description="Concise, plain-English definition for general readers.")
     definition_zh: str = Field(..., description="Natural Chinese explanation matching the English definition.")
-    register: Optional[str] = Field(None, description="Optional: formality/usage register (e.g., academic, informal).")
-    notes: Optional[str] = Field(None, description="Optional: pitfalls, common confusions, or collocations.")
     examples: List[ExampleItem] = Field(..., min_items=1, max_items=3)
     distractors_en: List[str] = Field(..., min_items=3, max_items=3, description="3 plausible but incorrect English definitions for quiz options.")
     distractors_zh: List[str] = Field(..., min_items=3, max_items=3, description="Chinese translations aligned with distractors_en.")
@@ -110,8 +108,6 @@ Produce STRICT JSON with keys:
 - pos (array)
 - definition_en (the correct meaning, level-aware: {level})
 - definition_zh
-- register (optional)
-- notes (optional)
 - examples (1-2 items, each with en and zh)
 - distractors_en (3 alternative incorrect definitions in English only, same style and length as definition_en — similar word count, plausible but clearly wrong)
 - distractors_zh (the natural Chinese translations of the 3 distractors above, aligned with distractors_en)

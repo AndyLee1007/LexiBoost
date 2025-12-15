@@ -492,8 +492,13 @@ async function submitAnswer() {
         });
 
         // Update score
-        sessionScore += answerData.score_change;
-        document.getElementById('current-score').textContent = sessionScore;
+        // sessionScore += answerData.score_change;
+        // document.getElementById('current-score').textContent = sessionScore;
+        is_correct = selectedAnswer == currentQuestion.correct_answer_i18n.en
+        if (is_correct) {
+            sessionScore += 1;
+            document.getElementById('current-score').textContent = sessionScore;
+        }
 
         // Show result
         showAnswerResult(answerData);

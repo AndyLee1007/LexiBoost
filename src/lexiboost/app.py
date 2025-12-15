@@ -7,6 +7,7 @@ Main Flask application entry point
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import sqlite3
+import time
 import csv
 import io
 import os
@@ -246,6 +247,7 @@ def start_session(user_id):
         # Start question preloader for this session
         question_preloader.start_session_preloader(session_id, user_id)
         
+        time.sleep(2.0)
         # Get additional info for response
         available_questions = get_available_question_count(user_id, dictionary_id)
         

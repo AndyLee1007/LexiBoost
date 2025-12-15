@@ -4,6 +4,7 @@ Question Preloader for LexiBoost
 Implements a memory-based queue system with background thread for LLM calls
 """
 
+from multiprocessing import pool
 import os
 import time
 import random
@@ -14,8 +15,6 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-
-from .definition_service import definition_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,16 +73,12 @@ class QuestionPreloader:
         self.stop_events[session_id] = threading.Event()
         self.session_served_words[session_id] = set()
 
-        initial_pool = self._build_session_word_pool(session_id, user_id)
-        if not initial_pool:
-            logger.info(f"No candidate words available for session {session_id} during initialization")
-            initial_pool = deque()
-        self.session_word_pools[session_id] = initial_pool
+        self.session_word_pools[session_id] = self._build_session_word_pool(session_id, user_id)
         
         # Start preloader thread
         thread = threading.Thread(
             target=self._preload_worker,
-            args=(session_id, user_id),
+            args=(session_id,),
             name=f"PreloaderThread-{session_id}",
             daemon=True
         )
@@ -191,7 +186,7 @@ class QuestionPreloader:
                         }
         return None
     
-    def _preload_worker(self, session_id: int, user_id: int) -> None:
+    def _preload_worker(self, session_id: int) -> None:
         """Background worker thread for preloading questions"""
         logger.info(f"Preloader worker started for session {session_id}")
         
@@ -205,7 +200,7 @@ class QuestionPreloader:
                     
                     if current_size < self.queue_size:
                         # Generate a new question
-                        question = self._generate_question(session_id, user_id)
+                        question = self._generate_question(session_id)
                         if question:
                             with self.session_locks[session_id]:
                                 self.question_queues[session_id].append(question)
@@ -289,26 +284,15 @@ class QuestionPreloader:
 
         finally:
             conn.close()
-
-    def _get_next_word_from_pool(self, session_id: int, user_id: int) -> Optional[Dict]:
-        """Retrieve the next word for question generation."""
-        lock = self.session_locks.get(session_id)
-        if lock is None:
-            return None
-
-        with lock:
-            pool = self.session_word_pools.get(session_id)
-            if not pool:
-                return None
-            if len(pool) == 0:
-                return None
-            return pool.popleft()
     
-    def _generate_question(self, session_id: int, user_id: int) -> Optional[PreloadedQuestion]:
+    def _generate_question(self, session_id: int) -> Optional[PreloadedQuestion]:
         """Generate a single question with LLM call"""
         try:
-            target = self._get_next_word_from_pool(session_id, user_id)
-            if not target:
+            pool = self.session_word_pools.get(session_id)
+            if pool and len(pool) > 0:
+                target = pool.popleft()
+            else:
+                logger.warning(f"No available word pool or empty pool for session {session_id}")
                 return None
             
             word_id = target['id']
@@ -319,6 +303,7 @@ class QuestionPreloader:
                 return None
             
             # Call LLM for explanation (this is the expensive operation)
+            from .definition_service import definition_service
             explanation = definition_service.get_word_explanation(word_txt, level)
             # Cache the explanation for reuse
             self.cache_explanation(word_txt, level, explanation)
